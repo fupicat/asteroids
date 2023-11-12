@@ -19,6 +19,16 @@ dataseg
                 db 00, 00, 04, 04, 12, 00, 04, 04, 12, 00
                 db 00, 00, 04, 04, 04, 00, 04, 04, 04, 00
     
+    ; Jogo
+    nave_x      dw 30
+    nave_y      dw 30
+    prev_nave_x dw 30
+    prev_nave_y dw 30
+
+    ; Inputs
+    input_up   db 0
+    input_down db 0
+    
     ; Utils
     rect_height dw 0
     rect_width  dw 0
@@ -152,7 +162,7 @@ draw_sprite:
     call cartesian_to_screen
     mov di, ax            ; Coloca a posição para desenhar no registrador de destino.
     mov cx, spr_size      ; Coloca a largura do sprite no contador.
-    mov [rect_height], cx ; Salva a altura do sprite para saber quantas linhas desenhar.
+    mov rect_height, cx ; Salva a altura do sprite para saber quantas linhas desenhar.
 
     draw_sprite_loop:
         ; Transfere a imagem do sprite para a tela.
@@ -160,20 +170,20 @@ draw_sprite:
         loop draw_sprite_loop
 
         ; Incrementa a fonte e o destino para prepará-los para a próxima linha.
-        inc si
-        inc di
+        ; inc si
+        ; inc di
 
         ; Decrementa a altura e verifica se acabou.
-        mov cx, [rect_height]
+        mov cx, rect_height
         dec cx
         jz draw_sprite_end
-        mov [rect_height], cx
+        mov rect_height, cx
 
         ; Passa para a próxima linha.
         add di, 320
-        sub di, [spr_size]
+        sub di, spr_size
         mov cx, spr_size
-        loop draw_sprite_loop
+        jmp draw_sprite_loop
 
     draw_sprite_end:
         pop si
@@ -181,14 +191,101 @@ draw_sprite:
         pop ax
     ret
 ;
-start_game:
-    mov bx, 30
-    mov ax, 30
-    mov si, offset spr_nave
+; Lê o status das teclas relevantes para o jogo e altera suas entradas na memória.
+;
+; Retorna:
+; input_up = 1 se cima estiver pressionado, 0 se não.
+; input_down = 1 se baixo estiver pressionado, 0 se não.
+; input_fire = 1 se espaço estiver pressionado, 0 se não.
+get_input:
+    push ax
+    push bx
 
+    ; Há teclas para ler? Se não, pule essa etapa.
+    mov ah, 1
+    int 16h
+    jz input_end
+
+    ; Obtém o status do port 60H (teclado).
+    in ax, 60H
+
+    ; Se a tecla cima estiver sendo pressionada...
+    cmp al, 48h
+    je input_up_pressed
+    mov input_up, 0
+
+    cmp al, 50h
+    je input_down_pressed
+    mov input_down, 0
+
+    input_end:
+        pop bx
+        pop ax
+        ret
+
+    input_up_pressed:
+        mov input_up, 1
+        jmp input_end
+    
+    input_down_pressed:
+        mov input_down, 1
+        jmp input_end
+;
+; Realiza as ações de cada tecla pressionada
+process_input:
+    push ax
+
+    process_input_up:
+        cmp input_up, 1
+        jne process_input_down
+        mov ax, nave_y
+        mov prev_nave_y, ax
+        dec nave_y
+    
+    process_input_down:
+        cmp input_down, 1
+        jne process_input_done
+        mov ax, nave_y
+        mov prev_nave_y, ax
+        inc nave_y
+
+    process_input_done:
+        pop ax
+        ret
+;
+; Desenha os sprites
+render_scene:
+    push bx
+    push ax
+    push si
+
+    mov bx, prev_nave_x
+    mov ax, prev_nave_y
+    mov dl, 0
+    mov rect_height, 10
+    mov rect_width, 10
+    call draw_rect
+
+    mov bx, nave_x
+    mov ax, nave_y
+    mov si, offset spr_nave
+    call draw_sprite
+
+    pop si
+    pop ax
+    pop bx
+    ret
+;
+start_game:
     main_loop:
-        call draw_sprite
-        add ax, 10
+        call get_input
+
+        call process_input
+
+        call render_scene
+
+        
+        
 
         mov cx, DELAY_HIGH
         mov dx, DELAY_LOW
