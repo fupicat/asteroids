@@ -19,19 +19,56 @@ dataseg
                 db 00, 00, 04, 04, 12, 00, 04, 04, 12, 00
                 db 00, 00, 04, 04, 04, 00, 04, 04, 04, 00
     
+    spr_nave_escd   db 00, 00, 00, 01, 01, 09, 09, 09, 00, 00
+                    db 00, 00, 01, 01, 09, 09, 09, 09, 09, 00
+                    db 00, 00, 01, 01, 09, 11, 15, 15, 15, 15
+                    db 01, 09, 01, 01, 09, 11, 15, 15, 15, 15
+                    db 01, 09, 01, 01, 09, 11, 11, 11, 11, 11
+                    db 01, 09, 01, 01, 09, 09, 09, 09, 09, 00
+                    db 01, 01, 01, 01, 09, 09, 09, 09, 09, 00
+                    db 01, 01, 01, 01, 09, 01, 01, 01, 09, 00
+                    db 00, 00, 01, 01, 09, 00, 01, 01, 09, 00
+                    db 00, 00, 01, 01, 01, 00, 01, 01, 01, 00
+    
+    spr_obst    db 00, 00, 00, 08, 08, 08, 07, 07, 00, 00
+                db 00, 08, 08, 08, 08, 07, 08, 07, 07, 00
+                db 08, 08, 08, 08, 07, 07, 00, 08, 07, 07
+                db 08, 00, 07, 08, 07, 07, 00, 00, 07, 08
+                db 08, 00, 00, 08, 07, 08, 07, 07, 07, 07
+                db 08, 08, 08, 08, 07, 07, 07, 07, 07, 07
+                db 08, 08, 08, 08, 00, 08, 08, 07, 08, 07
+                db 00, 08, 08, 08, 00, 08, 08, 07, 07, 07
+                db 00, 08, 08, 08, 00, 00, 00, 08, 08, 00
+                db 00, 00, 08, 08, 08, 08, 08, 08, 00, 00
+    
+    spr_vida    db 00, 00, 15, 10, 10, 10, 10, 15, 00, 00
+                db 00, 15, 15, 10, 10, 10, 10, 15, 15, 00
+                db 15, 15, 10, 10, 10, 10, 10, 10, 15, 15
+                db 02, 10, 10, 10, 15, 15, 10, 10, 10, 02
+                db 02, 02, 10, 15, 15, 15, 15, 10, 02, 02
+                db 02, 02, 02, 02, 15, 15, 02, 02, 02, 02
+                db 00, 02, 02, 02, 02, 02, 02, 02, 02, 00
+                db 00, 00, 10, 10, 10, 10, 10, 10, 00, 00
+                db 00, 00, 15, 15, 15, 15, 15, 15, 00, 00
+                db 00, 00, 00, 15, 15, 15, 15, 00, 00, 00
+    
+    spr_escd    db 15, 15, 00, 00, 15, 15, 00, 00, 15, 15
+                db 15, 01, 15, 15, 01, 01, 15, 15, 09, 15
+                db 15, 01, 01, 15, 01, 09, 01, 09, 09, 15
+                db 15, 01, 01, 15, 01, 01, 09, 09, 09, 15
+                db 15, 01, 01, 01, 15, 09, 01, 09, 09, 15
+                db 00, 15, 01, 01, 15, 01, 09, 09, 15, 00
+                db 00, 15, 01, 01, 01, 15, 01, 09, 15, 00
+                db 00, 00, 15, 01, 01, 15, 09, 15, 00, 00
+                db 00, 00, 00, 15, 01, 09, 15, 00, 00, 00
+                db 00, 00, 00, 00, 15, 15, 00, 00, 00, 00
+    
     ; Jogo
-    nave_x      dw 30
-    nave_y      dw 30
-    prev_nave_x dw 30
-    prev_nave_y dw 30
+    nave_pos   dw 320 * 30 + 30
 
     ; Inputs
     input_up   db 0
     input_down db 0
-    
-    ; Utils
-    rect_height dw 0
-    rect_width  dw 0
 ;
 codeseg
 ;
@@ -58,7 +95,7 @@ vga_mode:
 cartesian_to_screen:
     push bx
     push cx
-    push dx ; Salva o DX pois o MUL usar esse registrador.
+    push dx ; Salva o DX pois o MUL usa esse registrador.
 
     mov cx, 320
     mul cx
@@ -115,69 +152,57 @@ draw_bg_color:
     ret
 ;
 ; Desenha um retângulo
-; BX = X
-; AX = Y
+; CX = Largura
+; BX = Altura
+; DI = Posição
 ; DL = Cor
-; RECT_HEIGHT = Altura
-; RECT_WIDTH = Largura
 draw_rect:
-    push ax
+    push di
     push bx
-    push cx
-    push dx
-
-    mov cx, [rect_width]
+    push cx ; Salva a largura
 
     draw_rect_loop:
-        call draw_pixel
-        inc bx
+        ; Transfere a cor para a tela.
+        mov es:[di], dl
+        inc di
         loop draw_rect_loop
-        mov cx, [rect_height]
-        dec cx
+
+        pop cx ; Recupera a largura
+
+        ; Decrementa a altura e verifica se acabou.
+        dec bx
         jz draw_rect_end
-        mov [rect_height], cx
-        inc ax
-        mov cx, [rect_width]
-        sub bx, cx
-        call draw_pixel
-        inc bx
-        loop draw_rect_loop
-    
+
+        ; Passa para a próxima linha.
+        add di, 320
+        sub di, cx
+        push cx ; Salva a largura
+        jmp draw_rect_loop
+
     draw_rect_end:
-        pop dx
-        pop cx
         pop bx
-        pop ax
+        pop di
     ret
 ;
 ; Desenha um sprite em uma posição
-; BX = X
-; AX = Y
 ; SI = Endereço do sprite
+; DI = Endereço para desenhar
 draw_sprite:
-    push ax
     push cx
     push si
+    push di
+    push bx
 
-    call cartesian_to_screen
-    mov di, ax            ; Coloca a posição para desenhar no registrador de destino.
     mov cx, spr_size      ; Coloca a largura do sprite no contador.
-    mov rect_height, cx ; Salva a altura do sprite para saber quantas linhas desenhar.
+    mov bx, cx ; Salva a altura do sprite para saber quantas linhas desenhar.
 
     draw_sprite_loop:
         ; Transfere a imagem do sprite para a tela.
-        movsb
-        loop draw_sprite_loop
-
-        ; Incrementa a fonte e o destino para prepará-los para a próxima linha.
-        ; inc si
-        ; inc di
+        rep movsb
 
         ; Decrementa a altura e verifica se acabou.
-        mov cx, rect_height
-        dec cx
+        dec bx
         jz draw_sprite_end
-        mov rect_height, cx
 
         ; Passa para a próxima linha.
         add di, 320
@@ -186,10 +211,142 @@ draw_sprite:
         jmp draw_sprite_loop
 
     draw_sprite_end:
+        pop bx
+        pop di
         pop si
         pop cx
-        pop ax
     ret
+;
+; Move um sprite em uma direção.
+; Preenche a área que o sprite costumava ocupar por preto.
+;
+; Recebe:
+; SI = Endereço do sprite no segmento de dados.
+; AX = Direção para mover (0 = cima, 1 = baixo, 2 = esquerda, 3 = direita).
+; BX = Quantos pixels mover.
+; DX = Posição atual do sprite na memória de vídeo.
+;
+; Retorna:
+; DX = Nova posição do sprite na memória de vídeo.
+move_sprite:
+    push ax
+    push di
+    push bx
+
+    cmp bx, 0
+    je move_sprite_end
+
+    mov di, dx
+
+    cmp ax, 0
+    je move_sprite_up
+    cmp ax, 1
+    je move_sprite_down
+    cmp ax, 2
+    je move_sprite_left
+    cmp ax, 3
+    je move_sprite_right
+    jmp move_sprite_end
+
+    ; NOTE: Essas labels ficam aqui no meio da rotina para evitar pulos longos demais.
+    move_sprite_finished:
+        pop dx ; Traz de volta a nova posição do sprite para retorno.
+    move_sprite_end:
+        pop bx
+        pop di
+        pop ax
+        ret
+
+    move_sprite_up:
+        ; Calcula nova posição
+        mov ax, 320
+        mul bx
+        sub di, ax
+        push di ; Salva a nova posição do sprite
+
+        call draw_sprite
+
+        ; Desenha preto atrás do sprite.
+        ; Largura = o tamanho do sprite.
+        mov cx, spr_size
+        ; Calcula posição do retângulo preto a se desenhar.
+        ; Desce spr_size pixels a partir da posição nova do sprite.
+        ; AKA, desce até o fim do sprite e cobre quantos pixels ele subiu.
+        mov ax, 320
+        mul spr_size
+        add di, ax
+        ; Desenha o retângulo
+        xor dx, dx
+        call draw_rect
+
+        jmp move_sprite_finished
+    
+    move_sprite_down:
+        ; Calcula nova posição
+        mov ax, 320
+        mul bx
+        add di, ax
+        push di ; Salva a nova posição do sprite
+
+        call draw_sprite
+
+        ; Desenha preto atrás do sprite.
+        ; Largura = o tamanho do sprite.
+        mov cx, spr_size
+        ; Calcula posição do retângulo preto a se desenhar.
+        ; Sobe BX pixels a partir da posição nova do sprite.
+        ; AKA, sobe quantos pixels o sprite desceu e cobre essa mesma quantidade de pixels.
+        mov ax, 320
+        mul bx
+        sub di, ax
+        ; Desenha o retângulo
+        xor dx, dx
+        call draw_rect
+
+        jmp move_sprite_finished
+
+    move_sprite_left:
+        ; Calcula nova posição
+        sub di, bx
+        push di ; Salva a nova posição do sprite
+
+        call draw_sprite
+
+        ; Desenha preto atrás do sprite
+        ; Largura = a quantidade de pixels andados.
+        mov cx, bx
+        ; Altura = o tamanho do sprite.
+        mov bx, spr_size
+        ; Calcula posição do retângulo preto a se desenhar.
+        ; Vai spr_size pixels pra direita a partir da posição nova do sprite.
+        mov ax, spr_size
+        add di, ax
+        ; Desenha o retângulo
+        xor dx, dx
+        call draw_rect
+
+        jmp move_sprite_finished
+    
+    move_sprite_right:
+        ; Calcula nova posição
+        add di, bx
+        push di ; Salva a nova posição do sprite
+
+        call draw_sprite
+
+        ; Desenha preto atrás do sprite
+        ; Largura = a quantidade de pixels andados.
+        mov cx, bx
+        ; Calcula posição do retângulo preto a se desenhar.
+        ; Vai BX pixels pra esquerda a partir da posição nova do sprite.
+        sub di, bx
+        ; Altura = o tamanho do sprite.
+        mov bx, spr_size
+        ; Desenha o retângulo
+        xor dx, dx
+        call draw_rect
+
+        jmp move_sprite_finished
 ;
 ; Lê o status das teclas relevantes para o jogo e altera suas entradas na memória.
 ;
@@ -234,55 +391,50 @@ get_input:
 ; Realiza as ações de cada tecla pressionada
 process_input:
     push ax
+    push bx
+    push si
+
+    mov si, offset spr_nave
+    mov dx, nave_pos
+    mov bx, 1
 
     process_input_up:
         cmp input_up, 1
         jne process_input_down
-        mov ax, nave_y
-        mov prev_nave_y, ax
-        dec nave_y
+        ; Mover para cima
+        xor ax, ax
+        call move_sprite
+        mov nave_pos, dx
     
     process_input_down:
         cmp input_down, 1
         jne process_input_done
-        mov ax, nave_y
-        mov prev_nave_y, ax
-        inc nave_y
+        ; Mover para baixo
+        mov ax, 1
+        call move_sprite
+        mov nave_pos, dx
 
     process_input_done:
+        pop si
+        pop bx
         pop ax
         ret
 ;
-; Desenha os sprites
-render_scene:
-    push bx
-    push ax
-    push si
-
-    mov bx, prev_nave_x
-    mov ax, prev_nave_y
-    mov dl, 0
-    mov rect_height, 10
-    mov rect_width, 10
-    call draw_rect
-
-    mov bx, nave_x
-    mov ax, nave_y
+; Desenha a cena inicial.
+setup_scene:
+    mov di, nave_pos
     mov si, offset spr_nave
     call draw_sprite
 
-    pop si
-    pop ax
-    pop bx
     ret
 ;
 start_game:
+    call setup_scene
+
     main_loop:
         call get_input
 
         call process_input
-
-        call render_scene
 
         
         
