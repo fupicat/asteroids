@@ -3,6 +3,7 @@ DELAY_HIGH equ 0000H
 DELAY_LOW  equ 3E80H ; 3E80H = 16000 microssegundos, ~60 fps
 MAX_OBJS   equ 16
 SPEED_TIRO equ 2
+LIFETIME_TIRO equ (320 - 30 - 10) / SPEED_TIRO
 ;
 ; Constantes
 SPR_SIZE    equ 10
@@ -81,7 +82,7 @@ dataseg
     ; Cada objeto é composto por:
     ; - Seu tipo (0 = vazio, 1 = tiro, 2 = obstaculo, 3 = vida, 4 = escudo)
     ; - Sua posição na tela (deslocamento na memória)
-    ; - Seu estado, sempre inicializado como 0 (campo de uso livre, muda para cada tipo de objeto)
+    ; - Seu tempo de vida, por quantos frames ele deve durar.
     objects    dw MAX_OBJS dup(0, 0, 0)
 
     ; Inputs
@@ -226,6 +227,8 @@ draw_rect:
     ret
 ;
 ; Desenha um sprite em uma posição
+;
+; Recebe:
 ; SI = Endereço do sprite
 ; DI = Endereço para desenhar
 draw_sprite:
@@ -413,7 +416,7 @@ spawn_object:
         ; Já que cada entrada de objeto é de 3 words, AKA 6 bytes.
         add bx, 6
         loop spawn_object_loop
-    ; Oh no... não houve espaco para criar o objeto. ;(
+    ; Oh no... não houve espaço para criar o objeto. ;(
     
     spawn_object_end:
         pop dx
@@ -426,7 +429,7 @@ spawn_object:
     spawn_object_found:
         ; Move o tipo do objeto para a array.
         mov word ptr [bx], ax
-        ; Dependendo do tipo do objeto, spawna em uma posição diferente...
+        ; Dependendo do tipo do objeto, faz algo diferente...
         cmp ax, OBJ_TIRO
         je spawn_object_tiro
         cmp ax, OBJ_OBST
@@ -437,34 +440,83 @@ spawn_object:
         je spawn_object_escd
         ; Nenhum dos tipos?? Zere a posição.
         xor ax, ax
-        jmp spawn_object_finish
+        jmp spawn_object_end
     
     spawn_object_tiro:
-        ; O tiro deve ser spawnado na frente da nave.
-        mov di, nave_pos
-        add di, FRENTE_NAVE
-        ; Desenhe um único ponto branco nessa posição.
-        mov dl, 15
-        call draw_pixel
-        ; Mova para a posição na memória
-        mov word ptr [bx+2], di
-        jmp spawn_object_finish
+        call spawn_tiro
+        jmp spawn_object_end
     
     spawn_object_obst:
-        jmp spawn_object_finish
+        jmp spawn_object_end
     
     spawn_object_vida:
-        jmp spawn_object_finish
+        jmp spawn_object_end
     
     spawn_object_escd:
-        jmp spawn_object_finish
-    
-    spawn_object_finish:
-        ; Zera o campo de status.
-        xor ax, ax
-        mov word ptr [bx+4], ax
         jmp spawn_object_end
 
+;
+; Cria um objeto de tiro.
+;
+; Recebe:
+; BX = Posição do objeto na array de objetos.
+spawn_tiro:
+    push ax
+    push dx
+    push di
+
+    ; O tiro deve ser spawnado na frente da nave.
+    mov di, nave_pos
+    add di, FRENTE_NAVE
+    ; Desenhe um único ponto branco nessa posição.
+    mov dl, 15
+    call draw_pixel
+    ; Mova a posição para a memória
+    mov word ptr [bx+2], di
+    ; Move o tempo de vida do tiro.
+    mov ax, LIFETIME_TIRO
+    mov word ptr [bx+4], ax
+
+    pop di
+    pop dx
+    pop ax
+    ret
+;
+; Remove um objeto, da memória e da tela.
+;
+; Recebe:
+; BX = Posição do objeto na array de objetos.
+remove_object:
+    push ax
+    push dx
+    push di
+
+    cmp word ptr [bx], OBJ_TIRO
+    je remove_object_tiro
+    cmp word ptr [bx], OBJ_OBST
+    je remove_object_sprite
+    cmp word ptr [bx], OBJ_VIDA
+    je remove_object_sprite
+    cmp word ptr [bx], OBJ_ESCD
+    je remove_object_sprite
+
+    remove_object_end:
+        ; Deleta o objeto da memória.
+        mov word ptr [bx], OBJ_NULL
+        pop di
+        pop dx
+        pop ax
+        ret
+    
+    remove_object_tiro:
+        ; Desenha um único pixel preto na posição do tiro.
+        mov di, word ptr [bx+2]
+        mov dl, 0
+        call draw_pixel
+        jmp remove_object_end
+    
+    remove_object_sprite:
+        jmp remove_object_end
 ;
 ; Realiza as ações dos objetos no campo de jogo.
 process_objects:
@@ -498,6 +550,11 @@ process_objects:
         ; Obtém o tipo do objeto.
         mov ax, word ptr [bx]
 
+        ; Decrementa o valor de vida do objeto.
+        dec word ptr [bx+4]
+        ; Se o valor de vida agora for zero, remove o objeto.
+        jz process_objects_remove
+
         cmp ax, OBJ_TIRO
         je process_objects_tiro
         cmp ax, OBJ_OBST
@@ -518,6 +575,10 @@ process_objects:
         jmp process_objects_continue
     
     process_objects_escd:
+        jmp process_objects_continue
+    
+    process_objects_remove:
+        call remove_object
         jmp process_objects_continue
 ;
 ; Realiza as ações de um tiro no campo de jogo.
@@ -540,14 +601,6 @@ process_tiro:
     ; Move o tiro.
     add di, SPEED_TIRO
 
-    ; Se o tiro estiver no fim da tela (X maior que 316), remova-o.
-    push bx
-    call screen_to_cartesian
-    mov dx, bx
-    pop bx
-    cmp dx, 316
-    jae process_tiro_remove ; JAE = Jump if above or equal = Pule se maior ou igual. (unsigned)
-
     ; Desenha o tiro na nova posição.
     mov dl, 15
     call draw_pixel
@@ -562,12 +615,6 @@ process_tiro:
         pop bx
         pop ax
         ret
-    
-    process_tiro_remove:
-        ; Zera o campo de tipo.
-        xor ax, ax
-        mov word ptr [bx], ax
-        jmp process_tiro_end
 ;
 ; Lê o status das teclas relevantes para o jogo e altera suas entradas na memória.
 ;
