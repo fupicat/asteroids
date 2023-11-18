@@ -1,22 +1,48 @@
 ; Defines
-DELAY_HIGH equ 0000H
-DELAY_LOW  equ 3E80H ; 3E80H = 16000 microssegundos, ~60 fps
-MAX_OBJS   equ 16
-SPEED_TIRO equ 2
-LIFETIME_TIRO equ (320 - 30 - 10) / SPEED_TIRO
+DELAY_LOW      equ 0C350H ; 3E80H = 16000 microssegundos, ~60 fps
+MAX_OBJS       equ 16
+SPR_SIZE       equ 10
+FRENTE_NAVE    equ 320 * (SPR_SIZE / 2) + SPR_SIZE ; Adicione isso à posição da nave para spawnar o tiro na frente dela.
+SPEED          equ 2
+SPEED_TIRO     equ SPEED * 2
+TIRO_MAX_DELAY equ 4
+LIFETIME_TIRO  equ (320 - 30 - SPR_SIZE) / SPEED_TIRO
+MENU_SPRITES   equ 320 * (105) + SPR_SIZE * (320 / 2 / SPR_SIZE) - 7 * SPR_SIZE ; ehuahea colocar sprites do menu no meio da tela
+CR             equ 13
+LF             equ 10
 ;
-; Constantes
-SPR_SIZE    equ 10
-FRENTE_NAVE equ 320 * (SPR_SIZE / 2) + SPR_SIZE ; Adicione isso à posição da nave para spawnar algo na frente dela.
+; Enums
 OBJ_NULL    equ 0
 OBJ_TIRO    equ 1
 OBJ_OBST    equ 2
 OBJ_VIDA    equ 3
 OBJ_ESCD    equ 4
+MENU_JOGAR  equ 0
+MENU_SAIR   equ 1
 ;
 model small
 ;
 dataseg
+    ; Textos
+    str_logo    db "     ___       __               _    __", CR, LF
+                db "    / _ | ___ / /____ _______  (_)__/ /", CR, LF
+                db "   / __ |(_-</ __/ -_) __/ _ \/ / _  /", CR, LF
+                db "  /_/ |_/___/\__/\__/_/  \___/_/\_,_/", CR, LF
+                db "           _      __", CR, LF
+                db "          | | /| / /__ ___ __", CR, LF
+                db "          | |/ |/ / _ `/ // /", CR, LF
+                db "          |__/|__/\_,_/\_, /", CR, LF
+                db "                      /___/", CR, LF
+    len_str_logo equ $ - str_logo
+
+    str_jogar   db "               [ Jogar ]", CR, LF, CR, LF
+                db "                 Sair   "
+    len_str_jogar equ $ - str_jogar
+
+    str_sair    db "                 Jogar  ", CR, LF, CR, LF
+                db "               [ Sair  ]"
+    len_str_sair equ $ - str_sair
+
     ; Sprites
     spr_nave    db 00, 00, 00, 04, 04, 12, 12, 12, 00, 00
                 db 00, 00, 04, 04, 12, 12, 12, 12, 12, 00
@@ -75,6 +101,8 @@ dataseg
     
     ; Jogo
     nave_pos   dw 320 * 30 + 30
+    
+    tiro_delay db 0
 
     ; Array de objetos:
     ; 16 objetos podem existir no plano do jogo ao mesmo tempo.
@@ -89,6 +117,8 @@ dataseg
     input_up   db 0
     input_down db 0
     input_fire db 0
+
+    menu_selection db 0
 ;
 codeseg
 ;
@@ -645,9 +675,9 @@ get_input:
     mov input_down, 0
 
     ; Se a tecla espaço estiver sendo pressionada...
-    mov ah, 0
-    int 16h
-    cmp ah, 39h
+    ; mov ah, 0
+    ; int 16h
+    cmp al, 39h
     je input_fire_pressed
     mov input_fire, 0
 
@@ -676,7 +706,12 @@ process_input:
 
     mov si, offset spr_nave
     mov dx, nave_pos
-    mov bx, 1
+    mov bx, SPEED
+
+    ; Decrementa o delay de tiro
+    cmp tiro_delay, 0
+    je process_input_up
+    dec tiro_delay
 
     process_input_up:
         cmp input_up, 1
@@ -697,10 +732,14 @@ process_input:
     process_input_fire:
         cmp input_fire, 1
         jne process_input_done
+        ; Primeiro, vemos se o tiro não está em delay.
+        cmp tiro_delay, 0
+        jne process_input_done
         ; Atirar
         mov ax, OBJ_TIRO
         call spawn_object
         mov input_fire, 0
+        mov tiro_delay, TIRO_MAX_DELAY
 
     process_input_done:
         pop si
@@ -731,12 +770,124 @@ start_game:
         ; Terceiro, realiza as ações dos objetos.
         call process_objects
 
-
-        mov cx, DELAY_HIGH
+        xor cx, cx
         mov dx, DELAY_LOW
         call delay
         jmp main_loop
 
+    ret
+;
+main_menu:
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    push bp
+
+    ; Primeiro, vamos desenhar os sprites.
+    mov di, MENU_SPRITES
+    mov si, offset spr_nave
+    call draw_sprite
+
+    add di, SPR_SIZE * 4
+    mov si, offset spr_obst
+    call draw_sprite
+
+    add di, SPR_SIZE * 4
+    mov si, offset spr_vida
+    call draw_sprite
+
+    add di, SPR_SIZE * 4
+    mov si, offset spr_escd
+    call draw_sprite
+
+    mov ax, @data
+    mov es, ax              ; String tem que estar no ES.
+    mov ah, 13h             ; Imprimir string.
+    xor al, al              ; Só caracteres.
+    xor bh, bh              ; Página de vídeo 0
+
+    ; Logo
+    xor dl, dl              ; X = 0
+    mov dh, 2               ; Y = 2
+    mov bl, 0CH             ; Cor vermelho claro.
+    mov cx, len_str_logo    ; Tamanho da string
+    mov bp, offset str_logo ; String para escrever.
+    int 10h
+
+    ; Opções
+    mov dh, 17
+    mov bl, 0FH
+    mov cx, len_str_jogar
+    mov bp, offset str_jogar
+    int 10h
+
+    main_menu_loop:
+        ; Espere por uma tecla pressionada.
+        mov ah, 0
+        int 16h
+
+        ; Se a tecla for enter
+        cmp ah, 1Ch
+        je main_menu_selected
+
+        ; Se a tecla for cima
+        cmp ah, 48h
+        je main_menu_up
+
+        ; Se a tecla for baixo
+        cmp ah, 50h
+        je main_menu_down
+
+        jmp main_menu_loop
+    
+    main_menu_selected:
+        cmp menu_selection, MENU_SAIR
+        je main_menu_sair
+
+        pop bp
+        pop es
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        ret
+    
+    main_menu_sair:
+        call end_program
+    
+    main_menu_up:
+        mov menu_selection, MENU_JOGAR
+
+        ; Desenha o texto.
+        mov ah, 13h
+        mov cx, len_str_jogar
+        mov bp, offset str_jogar
+        int 10h
+
+        jmp main_menu_loop
+    
+    main_menu_down:
+        mov menu_selection, MENU_SAIR
+
+        ; Desenha o texto.
+        mov ah, 13h
+        mov cx, len_str_sair
+        mov bp, offset str_sair
+        int 10h
+
+        jmp main_menu_loop
+;
+; Finaliza o programa. Retorna para o modo de texto do DOS e devolve o comando para o OS.
+end_program:
+    mov ah, 0
+    mov al, 3
+    int 10h
+
+    mov   ah, 4Ch
+    mov   al, 0
+    int   21h
     ret
 ;
 start:
@@ -746,20 +897,13 @@ start:
 
     call cga_mode
 
+    call main_menu
+
+    mov dl, 0
+    call draw_bg_color
+
     call start_game
-
-    ; Por enquanto isso não faz nada porque o loop do jogo executa pra sempre, só copiei de um template.
-    input_loop:
-        mov ah, 0        ; 0 - keyboard BIOS function to get keyboard scancode
-        int 16h          ; keyboard interrupt
-        jz input_loop    ; if 0 (no button pressed) jump to input_loop
-        
-        mov ah, 0  ; Restore
-        mov al, 3  ; textmode
-        int 10h    ; for DOS
-
-        mov   ah, 4Ch
-        mov   al, 0
-        int   21h
+    
+    call end_program
 
 end start
