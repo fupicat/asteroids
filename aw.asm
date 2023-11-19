@@ -1,15 +1,27 @@
+; Opções
+DELAY_LOW       equ 0C350H ; 3E80H = 16000 microssegundos, ~60 fps
+MAX_OBJS        equ 16 ; O número máximo de objetos que podem existir ao mesmo tempo.
+SPEED           equ 2 ; A velocidade da nave, obstáculos e poderes.
+TIRO_MAX_DELAY  equ 4
+UI_PANEL_Y      equ 180
+;
 ; Defines
-DELAY_LOW      equ 0C350H ; 3E80H = 16000 microssegundos, ~60 fps
-MAX_OBJS       equ 16
-SPR_SIZE       equ 10
-FRENTE_NAVE    equ 320 * (SPR_SIZE / 2) + SPR_SIZE ; Adicione isso à posição da nave para spawnar o tiro na frente dela.
-SPEED          equ 2
-SPEED_TIRO     equ SPEED * 2
-TIRO_MAX_DELAY equ 4
-LIFETIME_TIRO  equ (320 - 30 - SPR_SIZE) / SPEED_TIRO
-MENU_SPRITES   equ 320 * (105) + SPR_SIZE * (320 / 2 / SPR_SIZE) - 7 * SPR_SIZE ; ehuahea colocar sprites do menu no meio da tela
-CR             equ 13
-LF             equ 10
+CR              equ 13
+LF              equ 10
+SPR_SIZE        equ 10
+INIT_NAVE_POS   equ 320 * (100 - SPR_SIZE / 2) + (160 - SPR_SIZE / 2)
+FRENTE_NAVE     equ 320 * (SPR_SIZE / 2) + SPR_SIZE ; Adicione isso à posição da nave para spawnar o tiro na frente dela.
+SPEED_TIRO      equ SPEED * 2
+LIFETIME_TIRO   equ (320 - 160) / SPEED_TIRO
+MENU_SPRITES    equ 320 * (105) + SPR_SIZE * (320 / 2 / SPR_SIZE) - 7 * SPR_SIZE ; ehuahea colocar sprites do menu no meio da tela
+UI_BARRA_MAX    equ 10
+UI_PANEL_POS    equ 320 * (UI_PANEL_Y)
+UI_PANEL_HEIGHT equ 200 - UI_PANEL_Y
+UI_TEMPO_POS    equ 320 * (UI_PANEL_Y + 5) + 5
+UI_VIDA_POS     equ 320 * (UI_PANEL_Y + 5) + 216
+UI_BARRA_HEIGHT equ SPR_SIZE
+UI_BARRA_WIDTH  equ SPR_SIZE * UI_BARRA_MAX
+UI_BOTAO_POS    equ 320 * (UI_PANEL_Y + 5) + (160 - SPR_SIZE / 2)
 ;
 ; Enums
 OBJ_NULL    equ 0
@@ -100,7 +112,7 @@ dataseg
                 db 00, 00, 00, 00, 15, 15, 00, 00, 00, 00
     
     ; Jogo
-    nave_pos   dw 320 * 30 + 30
+    nave_pos   dw INIT_NAVE_POS
     
     tiro_delay db 0
 
@@ -347,9 +359,11 @@ move_sprite:
         ; Desce SPR_SIZE pixels a partir da posição nova do sprite.
         ; AKA, desce até o fim do sprite e cobre quantos pixels ele subiu.
         mov ax, 320
+        push bx
         mov bx, SPR_SIZE
         mul bx
         add di, ax
+        pop bx
         ; Desenha o retângulo
         xor dx, dx
         call draw_rect
@@ -747,11 +761,112 @@ process_input:
         pop ax
         ret
 ;
+; Desenha uma barra de status.
+;
+; Recebe:
+; DI = Posição da barra.
+; DL = Cor da barra.
+; DH = Cor da sombra da barra.
+draw_status_bar:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+
+    mov ax, dx
+
+    ; Fundo
+    mov cx, UI_BARRA_WIDTH
+    mov bx, UI_BARRA_HEIGHT
+    xor dl, dl
+    call draw_rect
+    ; Cor
+    sub cx, 2
+    sub bx, 2
+    add di, 320 + 1
+    mov dl, al
+    call draw_rect
+    ; Brilho
+    sub cx, 4
+    mov bx, 1
+    add di, 320 + 2
+    mov dl, 15
+    call draw_rect
+    ; Sombra
+    mov bx, 3
+    add di, 320 * 3
+    mov dl, ah
+    call draw_rect
+
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+;
 ; Desenha a cena inicial.
 setup_scene:
+    ; Desenha a nave
     mov di, nave_pos
     mov si, offset spr_nave
     call draw_sprite
+
+    ; Desenha a interface.
+    ; Painel
+    mov di, UI_PANEL_POS
+    mov dl, 15
+    mov cx, 320
+    setup_scene_panel_white_loop:
+        call draw_pixel
+        inc di
+        loop setup_scene_panel_white_loop
+    
+    mov di, UI_PANEL_POS + 320
+    mov dl, 8
+    mov cx, 320 * (UI_PANEL_HEIGHT - 1)
+    setup_scene_panel_loop:
+        call draw_pixel
+        inc di
+        loop setup_scene_panel_loop
+    
+    ; Barra de tempo
+    mov di, UI_TEMPO_POS
+    mov dl, 11
+    mov dh, 3
+    call draw_status_bar
+
+    ; Barra de vida
+    mov di, UI_VIDA_POS
+    mov dl, 10
+    mov dh, 2
+    call draw_status_bar
+
+    ; Botão decorativo
+    mov di, UI_BOTAO_POS
+    ; Fundo
+    mov cx, 10
+    mov bx, 10
+    xor dl, dl
+    call draw_rect
+    ; Cor
+    sub cx, 2
+    sub bx, 2
+    add di, 320 + 1
+    mov dl, 4
+    call draw_rect
+    ; Brilho 1
+    sub cx, 2
+    sub bx, 2
+    mov dl, 12
+    call draw_rect
+    ; Sombra
+    mov cx, 3
+    mov bx, 3
+    add di, 320 + 1
+    mov dl, 15
+    call draw_rect
 
     ret
 ;
@@ -897,9 +1012,10 @@ start:
 
     call cga_mode
 
-    call main_menu
+    ; Ativa o menu. Comente para pular.
+    ; call main_menu
 
-    mov dl, 0
+    xor dl, dl
     call draw_bg_color
 
     call start_game
