@@ -33,13 +33,19 @@
     LIFETIME_OBST   equ (320 - SPR_SIZE / 2) / SPEED - SPEED
 ;
 ; Enums
+    MENU_JOGAR  equ 0
+    MENU_SAIR   equ 1
+
+    DIR_CIMA    equ 0
+    DIR_BAIXO   equ 1
+    DIR_ESQ     equ 2
+    DIR_DIR     equ 3
+
     OBJ_NULL    equ 0
     OBJ_TIRO    equ 1
     OBJ_OBST    equ 2
     OBJ_VIDA    equ 3
     OBJ_ESCD    equ 4
-    MENU_JOGAR  equ 0
-    MENU_SAIR   equ 1
 ;
 model small
 ;
@@ -126,6 +132,7 @@ dataseg
     tiro_delay db 0
 
     tempo_pos  dw UI_TEMPO_POS + UI_BARRA_MAX_POS
+    vida_pos   dw UI_VIDA_POS + UI_BARRA_MAX_POS
 
     ; Array de objetos:
     ; 16 objetos podem existir no plano do jogo ao mesmo tempo.
@@ -321,10 +328,10 @@ draw_sprite:
 ; SI = Endereço do sprite no segmento de dados.
 ; AX = Direção para mover (0 = cima, 1 = baixo, 2 = esquerda, 3 = direita).
 ; BX = Quantos pixels mover.
-; DI = Posição atual do sprite na memória de vídeo.
+; DI = Posição atual do sprite na tela.
 ;
 ; Retorna:
-; DI = Nova posição do sprite na memória de vídeo.
+; DI = Nova posição do sprite na tela.
 move_sprite:
     push ax
     push bx
@@ -332,13 +339,13 @@ move_sprite:
     cmp bx, 0
     je move_sprite_end
 
-    cmp ax, 0
+    cmp ax, DIR_CIMA
     je move_sprite_up
-    cmp ax, 1
+    cmp ax, DIR_BAIXO
     je move_sprite_down
-    cmp ax, 2
+    cmp ax, DIR_ESQ
     je move_sprite_left
-    cmp ax, 3
+    cmp ax, DIR_DIR
     je move_sprite_right
     jmp move_sprite_end
 
@@ -446,6 +453,101 @@ move_sprite:
 
         jmp move_sprite_end
 ;
+; Detecta colisão entre um pixel e um sprite.
+; Para isso, vai passando linha por linha de um sprite,
+; vendo se o pixel está no intervalo de memória que aquela linha ocupa.
+;
+; Recebe:
+; SI = Posição do pixel.
+; DI = Posição do sprite.
+;
+; Retorna:
+; AX = 1 se houve colisão, 0 se não houve.
+point_collision:
+    push bx
+    push cx
+    push di
+    push si
+
+    xor ax, ax
+
+    xor bx, bx
+    mov cx, SPR_SIZE
+    point_collision_loop:
+        ; Vê se o pixel está dentro desta linha do sprite.
+
+        ; Primeiro vê se o pixel vem depois da sua extremidade esquerda.
+        cmp si, di
+        jae point_collision_continue
+        ; Se não está, vai para a próxima linha.
+        add di, SPR_SIZE - 1
+        jmp point_collision_skip
+
+        ; Depois, vê se o pixel vem antes da sua extremidade direita.
+        point_collision_continue:
+            add di, SPR_SIZE - 1
+            cmp si, di
+            ; Se estiver dentro da linha, houve colisão.
+            jbe point_collision_detected
+
+        ; Vamos para a próxima linha...
+        point_collision_skip:
+            inc bx
+            add di, 320 - SPR_SIZE + 1
+            loop point_collision_loop
+    
+    point_collision_end:
+        pop si
+        pop di
+        pop cx
+        pop bx
+        ret
+    
+    point_collision_detected:
+        mov ax, 1
+        jmp point_collision_end
+;
+; Detecta colisão entre dois sprites.
+; Para isso, esse procedimento só faz colisão de pixel pelos quatro cantos do sprite.
+;
+; Recebe:
+; SI = Posição do sprite 1.
+; DI = Posição do sprite 2.
+;
+; Retorna:
+; AX = 1 se houve colisão, 0 se não houve.
+sprite_collision:
+    push dx
+    push di
+
+    mov dl, 15
+
+    ; Testando canto superior esquerdo...
+    call point_collision
+    cmp ax, 1
+    je sprite_collision_end
+
+    ; Testando canto superior direito...
+    add si, SPR_SIZE - 1
+    call point_collision
+    cmp ax, 1
+    je sprite_collision_end
+
+    ; Testando canto inferior esquerdo...
+    add si, 320 * (SPR_SIZE - 1) - SPR_SIZE + 1
+    call point_collision
+    cmp ax, 1
+    je sprite_collision_end
+
+    ; Testando canto inferior direito...
+    add si, SPR_SIZE - 1
+    call point_collision
+
+    sprite_collision_end:
+        pop di
+        pop dx
+        ret
+;
 ; Cria um objeto em uma posição livre na array de objetos.
 ; Se não houver espaço, o objeto não será criado.
 ;
@@ -463,7 +565,7 @@ spawn_object:
 
     spawn_object_loop:
         ; Vê se há espaço para criar o objeto.
-        cmp word ptr [bx], 0
+        cmp word ptr [bx], OBJ_NULL
         je spawn_object_found
         ; Adiciona 6 para ir para o próximo objeto,
         ; Já que cada entrada de objeto é de 3 words, AKA 6 bytes.
@@ -611,6 +713,30 @@ remove_object:
         pop bx ; Recupera posição do objeto na memória.
         jmp remove_object_end
 ;
+; Move um objeto que seja um sprite, e atualiza sua posição na array de objetos.
+;
+; Recebe:
+; BX = Posição do objeto na array de objetos.
+; SI = Endereço do sprite no segmento de dados.
+; AX = Direção para mover (0 = cima, 1 = baixo, 2 = esquerda, 3 = direita).
+; CX = Quantos pixels mover.
+;
+; Retorna:
+; DI = Nova posição do objeto na tela.
+move_object_sprite:
+    ; Primeiro, vamos obter a posição atual do objeto.
+    mov di, word ptr [bx+2]
+    push bx
+    
+    ; Move o objeto.
+    mov bx, cx
+    call move_sprite
+
+    ; Atualiza a posição na array de objeto.
+    pop bx
+    mov word ptr [bx+2], di
+    ret
+;
 ; Realiza as ações dos objetos no campo de jogo.
 process_objects:
     push ax
@@ -624,7 +750,7 @@ process_objects:
 
     process_objects_loop:
         ; Há um objeto aqui?
-        cmp word ptr [bx], 0
+        cmp word ptr [bx], OBJ_NULL
         jne process_objects_found
         process_objects_continue:
             ; Adiciona 6 para ir para o último objeto,
@@ -715,31 +841,78 @@ process_tiro:
 ; BX = Posição da entrada do objeto na array de objetos.
 process_obst:
     push ax
-    push bx
     push di
     push si
     push cx
 
-    ; Primeiro, vamos obter a posição atual do obstáculo.
-    mov di, word ptr [bx+2]
-    push bx
-    
     ; Move o obstáculo para a esquerda.
     mov si, offset spr_obst
-    mov ax, 2
-    mov bx, SPEED
-    call move_sprite
+    mov ax, DIR_ESQ
+    mov cx, SPEED
+    call move_object_sprite
 
-    ; Atualiza a posição na array de objeto.
-    pop bx
-    mov word ptr [bx+2], di
+    push bx ; Salva sua posição na memória caso tenha que ser deletado.
 
-    pop cx
-    pop si
-    pop di
-    pop bx
-    pop ax
-    ret
+    ; Vamos detectar se algum tiro atingiu esse obstáculo!
+    ; Percorremos todos os objetos...
+    mov bx, offset objects
+    mov cx, MAX_OBJS
+    process_obst_loop:
+        cmp word ptr [bx], OBJ_TIRO
+        ; Achamos um tiro!
+        je process_obst_tiro
+        process_obst_continue:
+            add bx, 6
+            loop process_obst_loop
+    
+    pop bx ; Recupera sua posição na memória.
+
+    ; Agora vamos ver se ele está colidindo com a nave.
+    mov si, nave_pos
+    call sprite_collision
+    cmp ax, 1
+    je process_obst_hit
+
+    process_obst_end:
+        pop cx
+        pop si
+        pop di
+        pop ax
+        ret
+    
+    ; OMG achamos um tiro!! Vamos ver se ele atingiu o obstáculo.
+    ; Aqui, BX é a posição em memória do tiro.
+    process_obst_tiro:
+        ; Obtém a posição do tiro da array de objetos
+        mov si, word ptr [bx+2]
+        ; Detecta colisão.
+        call point_collision
+        ; Se a colisão foi detectada...
+        cmp ax, 1
+        je process_obst_die
+        ; Senão, continue procurando por tiros.
+        jmp process_obst_continue
+    
+    ; O obstáculo foi atingido por um tiro!
+    process_obst_die:
+        ; Primeiro, remove o tiro.
+        call remove_object
+        ; Depois, remove o obstáculo.
+        pop bx ; Recupera sua posição na memória.
+        call remove_object
+        jmp process_obst_end
+    
+    ; O obstáculo atingiu a nave!
+    process_obst_hit:
+        ; Causa dano na nave.
+        call damage
+        ; Remove o obstáculo.
+        call remove_object
+        ; Redesenha a nave.
+        mov si, offset spr_nave
+        mov di, nave_pos
+        call draw_sprite
+        jmp process_obst_end
 ;
 ; Lê o status das teclas relevantes para o jogo e altera suas entradas na memória.
 ;
@@ -828,7 +1001,7 @@ process_input:
         cmp nave_pos, NAVE_MAX_Y
         jae process_input_fire ; JAE = JUMP IF AFTER OR EQUAL, comparação sem sinal.
         ; Mover para baixo
-        mov ax, 1
+        mov ax, DIR_BAIXO
         call move_sprite
         mov nave_pos, di
     
@@ -925,6 +1098,28 @@ decrement_status_bar:
     pop bx
     ret
 ;
+; Causa dano à nave. Se a nave não tiver mais vida, encerra o jogo.
+damage:
+    push di
+
+    mov di, vida_pos
+
+    ; Se a posição preenchida da barra for igual à sua posição inicial,
+    ; significa que ela está vazia.
+    cmp di, UI_VIDA_POS
+    jne damage_done
+
+    ; Se chegar nesse ponto, significa que a nave não tem mais vida.
+    ; Encerra o jogo.
+    call end_program
+
+    damage_done:
+        call decrement_status_bar
+        mov vida_pos, di
+
+        pop di
+        ret
+;
 ; Desenha a cena inicial.
 setup_scene:
     ; Desenha a nave
@@ -994,6 +1189,15 @@ start_game:
     call setup_scene
 
     mov ax, OBJ_OBST
+    call spawn_object
+    call spawn_object
+    call spawn_object
+    call spawn_object
+    call spawn_object
+    call spawn_object
+    call spawn_object
+    call spawn_object
+    call spawn_object
     call spawn_object
 
     ; Entrando no loop principal do jogo...
@@ -1135,7 +1339,7 @@ start:
     call cga_mode
 
     ; Ativa o menu. Comente para pular.
-    ; call main_menu
+    call main_menu
 
     xor dl, dl
     call draw_bg_color
