@@ -1,43 +1,45 @@
 ; Opções
-DELAY_LOW       equ 0C350H ; 3E80H = 16000 microssegundos, ~60 fps
-MAX_OBJS        equ 16 ; O número máximo de objetos que podem existir ao mesmo tempo.
-SPEED           equ 2 ; A velocidade da nave, obstáculos e poderes.
-TIRO_MAX_DELAY  equ 4
-UI_PANEL_Y      equ 180
+    DELAY_LOW       equ 0C350H ; 3E80H = 16000 microssegundos, ~60 fps
+    MAX_OBJS        equ 16 ; O número máximo de objetos que podem existir ao mesmo tempo.
+    SPEED           equ 2 ; A velocidade da nave, obstáculos e poderes.
+    TIRO_MAX_DELAY  equ 4
+    UI_PANEL_Y      equ 180
 ;
 ; Defines
-CR              equ 13
-LF              equ 10
+    CR              equ 13
+    LF              equ 10
 
-MENU_SPRITES    equ 320 * (105) + SPR_SIZE * (320 / 2 / SPR_SIZE) - 7 * SPR_SIZE ; ehuahea colocar sprites do menu no meio da tela
+    MENU_SPRITES    equ 320 * (105) + SPR_SIZE * (320 / 2 / SPR_SIZE) - 7 * SPR_SIZE ; ehuahea colocar sprites do menu no meio da tela
 
-UI_BARRA_MAX    equ 10
-UI_PANEL_POS    equ 320 * (UI_PANEL_Y)
-UI_PANEL_HEIGHT equ 200 - UI_PANEL_Y
-UI_TEMPO_POS    equ 320 * (UI_PANEL_Y + 5) + 5
-UI_VIDA_POS     equ 320 * (UI_PANEL_Y + 5) + 216
-UI_BARRA_HEIGHT equ SPR_SIZE
-UI_BARRA_WIDTH  equ SPR_SIZE * UI_BARRA_MAX
-UI_BOTAO_POS    equ 320 * (UI_PANEL_Y + 5) + (160 - SPR_SIZE / 2)
+    UI_BARRA_MAX     equ 10
+    UI_PANEL_POS     equ 320 * (UI_PANEL_Y)
+    UI_PANEL_HEIGHT  equ 200 - UI_PANEL_Y
+    UI_TEMPO_POS     equ 320 * (UI_PANEL_Y + 5) + 5
+    UI_VIDA_POS      equ 320 * (UI_PANEL_Y + 5) + 216
+    UI_BARRA_HEIGHT  equ SPR_SIZE
+    UI_BARRA_WIDTH   equ SPR_SIZE * UI_BARRA_MAX
+    UI_BARRA_MAX_POS equ UI_BARRA_WIDTH - SPR_SIZE ; Adicione isso à posição da barra para obter o endereço de memória para começar a apagá-la.
+    UI_BOTAO_POS     equ 320 * (UI_PANEL_Y + 5) + (160 - SPR_SIZE / 2)
 
-SPR_SIZE        equ 10
+    SPR_SIZE        equ 10
 
-INIT_NAVE_POS   equ 320 * (100 - SPR_SIZE / 2) + (160 - SPR_SIZE / 2)
-FRENTE_NAVE     equ 320 * (SPR_SIZE / 2) + SPR_SIZE ; Adicione isso à posição da nave para spawnar o tiro na frente dela.
-NAVE_MIN_Y      equ 320 * SPEED
-NAVE_MAX_Y      equ UI_PANEL_POS - 320 * (SPR_SIZE + SPEED)
+    INIT_NAVE_POS   equ 320 * (100 - SPR_SIZE / 2) + (160 - SPR_SIZE / 2)
+    FRENTE_NAVE     equ 320 * (SPR_SIZE / 2) + SPR_SIZE ; Adicione isso à posição da nave para spawnar o tiro na frente dela.
+    NAVE_MIN_Y      equ 320 * SPEED
+    NAVE_MAX_Y      equ UI_PANEL_POS - 320 * (SPR_SIZE + SPEED)
 
-SPEED_TIRO      equ SPEED * 2
-LIFETIME_TIRO   equ (320 - 160 - SPR_SIZE / 2) / SPEED_TIRO
+    SPEED_TIRO      equ SPEED * 2
+    LIFETIME_TIRO   equ (320 - 160 - SPR_SIZE / 2) / SPEED_TIRO
+    LIFETIME_OBST   equ (320 - SPR_SIZE / 2) / SPEED - SPEED
 ;
 ; Enums
-OBJ_NULL    equ 0
-OBJ_TIRO    equ 1
-OBJ_OBST    equ 2
-OBJ_VIDA    equ 3
-OBJ_ESCD    equ 4
-MENU_JOGAR  equ 0
-MENU_SAIR   equ 1
+    OBJ_NULL    equ 0
+    OBJ_TIRO    equ 1
+    OBJ_OBST    equ 2
+    OBJ_VIDA    equ 3
+    OBJ_ESCD    equ 4
+    MENU_JOGAR  equ 0
+    MENU_SAIR   equ 1
 ;
 model small
 ;
@@ -63,16 +65,16 @@ dataseg
     len_str_sair equ $ - str_sair
 
     ; Sprites
-    spr_nave    db 00, 00, 00, 04, 04, 12, 12, 12, 00, 00
-                db 00, 00, 04, 04, 12, 12, 12, 12, 12, 00
-                db 00, 00, 04, 04, 12, 11, 15, 15, 15, 15
-                db 04, 12, 04, 04, 12, 11, 15, 15, 15, 15
-                db 04, 12, 04, 04, 12, 11, 11, 11, 11, 11
-                db 04, 12, 04, 04, 12, 12, 12, 12, 12, 00
-                db 04, 04, 04, 04, 12, 12, 12, 12, 12, 00
-                db 04, 04, 04, 04, 12, 04, 04, 04, 12, 00
-                db 00, 00, 04, 04, 12, 00, 04, 04, 12, 00
-                db 00, 00, 04, 04, 04, 00, 04, 04, 04, 00
+    spr_nave        db 00, 00, 00, 04, 04, 12, 12, 12, 00, 00
+                    db 00, 00, 04, 04, 12, 12, 12, 12, 12, 00
+                    db 00, 00, 04, 04, 12, 11, 15, 15, 15, 15
+                    db 04, 12, 04, 04, 12, 11, 15, 15, 15, 15
+                    db 04, 12, 04, 04, 12, 11, 11, 11, 11, 11
+                    db 04, 12, 04, 04, 12, 12, 12, 12, 12, 00
+                    db 04, 04, 04, 04, 12, 12, 12, 12, 12, 00
+                    db 04, 04, 04, 04, 12, 04, 04, 04, 12, 00
+                    db 00, 00, 04, 04, 12, 00, 04, 04, 12, 00
+                    db 00, 00, 04, 04, 04, 00, 04, 04, 04, 00
     
     spr_nave_escd   db 00, 00, 00, 01, 01, 09, 09, 09, 00, 00
                     db 00, 00, 01, 01, 09, 09, 09, 09, 09, 00
@@ -85,43 +87,45 @@ dataseg
                     db 00, 00, 01, 01, 09, 00, 01, 01, 09, 00
                     db 00, 00, 01, 01, 01, 00, 01, 01, 01, 00
     
-    spr_obst    db 00, 00, 00, 08, 08, 08, 07, 07, 00, 00
-                db 00, 08, 08, 08, 08, 07, 08, 07, 07, 00
-                db 08, 08, 08, 08, 07, 07, 00, 08, 07, 07
-                db 08, 00, 07, 08, 07, 07, 00, 00, 07, 08
-                db 08, 00, 00, 08, 07, 08, 07, 07, 07, 07
-                db 08, 08, 08, 08, 07, 07, 07, 07, 07, 07
-                db 08, 08, 08, 08, 00, 08, 08, 07, 08, 07
-                db 00, 08, 08, 08, 00, 08, 08, 07, 07, 07
-                db 00, 08, 08, 08, 00, 00, 00, 08, 08, 00
-                db 00, 00, 08, 08, 08, 08, 08, 08, 00, 00
+    spr_obst        db 00, 00, 00, 08, 08, 08, 07, 07, 00, 00
+                    db 00, 08, 08, 08, 08, 07, 08, 07, 07, 00
+                    db 08, 08, 08, 08, 07, 07, 00, 08, 07, 07
+                    db 08, 00, 07, 08, 07, 07, 00, 00, 07, 08
+                    db 08, 00, 00, 08, 07, 08, 07, 07, 07, 07
+                    db 08, 08, 08, 08, 07, 07, 07, 07, 07, 07
+                    db 08, 08, 08, 08, 00, 08, 08, 07, 08, 07
+                    db 00, 08, 08, 08, 00, 08, 08, 07, 07, 07
+                    db 00, 08, 08, 08, 00, 00, 00, 08, 08, 00
+                    db 00, 00, 08, 08, 08, 08, 08, 08, 00, 00
     
-    spr_vida    db 00, 00, 15, 10, 10, 10, 10, 15, 00, 00
-                db 00, 15, 15, 10, 10, 10, 10, 15, 15, 00
-                db 15, 15, 10, 10, 10, 10, 10, 10, 15, 15
-                db 02, 10, 10, 10, 15, 15, 10, 10, 10, 02
-                db 02, 02, 10, 15, 15, 15, 15, 10, 02, 02
-                db 02, 02, 02, 02, 15, 15, 02, 02, 02, 02
-                db 00, 02, 02, 02, 02, 02, 02, 02, 02, 00
-                db 00, 00, 10, 10, 10, 10, 10, 10, 00, 00
-                db 00, 00, 15, 15, 15, 15, 15, 15, 00, 00
-                db 00, 00, 00, 15, 15, 15, 15, 00, 00, 00
+    spr_vida        db 00, 00, 15, 10, 10, 10, 10, 15, 00, 00
+                    db 00, 15, 15, 10, 10, 10, 10, 15, 15, 00
+                    db 15, 15, 10, 10, 10, 10, 10, 10, 15, 15
+                    db 02, 10, 10, 10, 15, 15, 10, 10, 10, 02
+                    db 02, 02, 10, 15, 15, 15, 15, 10, 02, 02
+                    db 02, 02, 02, 02, 15, 15, 02, 02, 02, 02
+                    db 00, 02, 02, 02, 02, 02, 02, 02, 02, 00
+                    db 00, 00, 10, 10, 10, 10, 10, 10, 00, 00
+                    db 00, 00, 15, 15, 15, 15, 15, 15, 00, 00
+                    db 00, 00, 00, 15, 15, 15, 15, 00, 00, 00
     
-    spr_escd    db 15, 15, 00, 00, 15, 15, 00, 00, 15, 15
-                db 15, 01, 15, 15, 01, 01, 15, 15, 09, 15
-                db 15, 01, 01, 15, 01, 09, 01, 09, 09, 15
-                db 15, 01, 01, 15, 01, 01, 09, 09, 09, 15
-                db 15, 01, 01, 01, 15, 09, 01, 09, 09, 15
-                db 00, 15, 01, 01, 15, 01, 09, 09, 15, 00
-                db 00, 15, 01, 01, 01, 15, 01, 09, 15, 00
-                db 00, 00, 15, 01, 01, 15, 09, 15, 00, 00
-                db 00, 00, 00, 15, 01, 09, 15, 00, 00, 00
-                db 00, 00, 00, 00, 15, 15, 00, 00, 00, 00
+    spr_escd        db 15, 15, 00, 00, 15, 15, 00, 00, 15, 15
+                    db 15, 01, 15, 15, 01, 01, 15, 15, 09, 15
+                    db 15, 01, 01, 15, 01, 09, 01, 09, 09, 15
+                    db 15, 01, 01, 15, 01, 01, 09, 09, 09, 15
+                    db 15, 01, 01, 01, 15, 09, 01, 09, 09, 15
+                    db 00, 15, 01, 01, 15, 01, 09, 09, 15, 00
+                    db 00, 15, 01, 01, 01, 15, 01, 09, 15, 00
+                    db 00, 00, 15, 01, 01, 15, 09, 15, 00, 00
+                    db 00, 00, 00, 15, 01, 09, 15, 00, 00, 00
+                    db 00, 00, 00, 00, 15, 15, 00, 00, 00, 00
     
     ; Jogo
     nave_pos   dw INIT_NAVE_POS
     
     tiro_delay db 0
+
+    tempo_pos  dw UI_TEMPO_POS + UI_BARRA_MAX_POS
 
     ; Array de objetos:
     ; 16 objetos podem existir no plano do jogo ao mesmo tempo.
@@ -317,19 +321,16 @@ draw_sprite:
 ; SI = Endereço do sprite no segmento de dados.
 ; AX = Direção para mover (0 = cima, 1 = baixo, 2 = esquerda, 3 = direita).
 ; BX = Quantos pixels mover.
-; DX = Posição atual do sprite na memória de vídeo.
+; DI = Posição atual do sprite na memória de vídeo.
 ;
 ; Retorna:
-; DX = Nova posição do sprite na memória de vídeo.
+; DI = Nova posição do sprite na memória de vídeo.
 move_sprite:
     push ax
-    push di
     push bx
 
     cmp bx, 0
     je move_sprite_end
-
-    mov di, dx
 
     cmp ax, 0
     je move_sprite_up
@@ -341,12 +342,9 @@ move_sprite:
     je move_sprite_right
     jmp move_sprite_end
 
-    ; NOTE: Essas labels ficam aqui no meio da rotina para evitar pulos longos demais.
-    move_sprite_finished:
-        pop dx ; Traz de volta a nova posição do sprite para retorno.
+    ; NOTA: Essa label fica aqui no meio da rotina para evitar pulos longos demais.
     move_sprite_end:
         pop bx
-        pop di
         pop ax
         ret
 
@@ -355,7 +353,7 @@ move_sprite:
         mov ax, 320
         mul bx
         sub di, ax
-        push di ; Salva a nova posição do sprite
+        push di ; Salva nova posição
 
         call draw_sprite
 
@@ -374,15 +372,16 @@ move_sprite:
         ; Desenha o retângulo
         xor dx, dx
         call draw_rect
+        pop di ; Recupera nova posição
 
-        jmp move_sprite_finished
+        jmp move_sprite_end
     
     move_sprite_down:
         ; Calcula nova posição
         mov ax, 320
         mul bx
         add di, ax
-        push di ; Salva a nova posição do sprite
+        push di ; Salva nova posição
 
         call draw_sprite
 
@@ -398,13 +397,14 @@ move_sprite:
         ; Desenha o retângulo
         xor dx, dx
         call draw_rect
+        pop di ; Recupera nova posição
 
-        jmp move_sprite_finished
+        jmp move_sprite_end
 
     move_sprite_left:
         ; Calcula nova posição
         sub di, bx
-        push di ; Salva a nova posição do sprite
+        push di ; Salva nova posição
 
         call draw_sprite
 
@@ -420,13 +420,14 @@ move_sprite:
         ; Desenha o retângulo
         xor dx, dx
         call draw_rect
+        pop di ; Recupera nova posição
 
-        jmp move_sprite_finished
+        jmp move_sprite_end
     
     move_sprite_right:
         ; Calcula nova posição
         add di, bx
-        push di ; Salva a nova posição do sprite
+        push di ; Salva nova posição
 
         call draw_sprite
 
@@ -441,8 +442,9 @@ move_sprite:
         ; Desenha o retângulo
         xor dx, dx
         call draw_rect
+        pop di ; Recupera nova posição.
 
-        jmp move_sprite_finished
+        jmp move_sprite_end
 ;
 ; Cria um objeto em uma posição livre na array de objetos.
 ; Se não houver espaço, o objeto não será criado.
@@ -498,6 +500,7 @@ spawn_object:
         jmp spawn_object_end
     
     spawn_object_obst:
+        call spawn_obst
         jmp spawn_object_end
     
     spawn_object_vida:
@@ -533,12 +536,41 @@ spawn_tiro:
     pop ax
     ret
 ;
+; Cria um objeto de obstáculo.
+;
+; Recebe:
+; BX = Posição do objeto na array de objetos.
+spawn_obst:
+    push ax
+    push dx
+    push di
+    push si
+
+    ; O obstáculo deve ser spawnado em uma posição aleatória.
+    mov di, 320 * 30 + 310 ; Temporário
+    ; Desenhe o sprite do obstáculo.
+    mov si, offset spr_obst
+    call draw_sprite
+    ; Mova a posição para a memória
+    mov word ptr [bx+2], di
+    ; Move o tempo de vida do obstáculo.
+    mov ax, LIFETIME_OBST
+    mov word ptr [bx+4], ax
+
+    pop si
+    pop di
+    pop dx
+    pop ax
+    ret
+;
 ; Remove um objeto, da memória e da tela.
 ;
 ; Recebe:
 ; BX = Posição do objeto na array de objetos.
 remove_object:
     push ax
+    push bx
+    push cx
     push dx
     push di
 
@@ -556,6 +588,8 @@ remove_object:
         mov word ptr [bx], OBJ_NULL
         pop di
         pop dx
+        pop cx
+        pop bx
         pop ax
         ret
     
@@ -567,6 +601,14 @@ remove_object:
         jmp remove_object_end
     
     remove_object_sprite:
+        push bx ; Salva posição do objeto na memória.
+        ; Desenha um quadrado preto sobre qualquer sprite.
+        mov di, word ptr [bx+2]
+        mov dl, 0
+        mov cx, SPR_SIZE
+        mov bx, SPR_SIZE
+        call draw_rect
+        pop bx ; Recupera posição do objeto na memória.
         jmp remove_object_end
 ;
 ; Realiza as ações dos objetos no campo de jogo.
@@ -620,6 +662,7 @@ process_objects:
         jmp process_objects_continue
     
     process_objects_obst:
+        call process_obst
         jmp process_objects_continue
 
     process_objects_vida:
@@ -635,7 +678,7 @@ process_objects:
 ; Realiza as ações de um tiro no campo de jogo.
 ;
 ; Recebe:
-; BX = Posição da entrada do tiro na array de objetos.
+; BX = Posição da entrada do objeto na array de objetos.
 process_tiro:
     push ax
     push bx
@@ -659,13 +702,44 @@ process_tiro:
     ; Atualiza a posição na array de objeto.
     mov word ptr [bx+2], di
 
-    process_tiro_end:
-        pop cx
-        pop dx
-        pop di
-        pop bx
-        pop ax
-        ret
+    pop cx
+    pop dx
+    pop di
+    pop bx
+    pop ax
+    ret
+;
+; Realiza as ações de um obstáculo no campo de jogo.
+;
+; Recebe:
+; BX = Posição da entrada do objeto na array de objetos.
+process_obst:
+    push ax
+    push bx
+    push di
+    push si
+    push cx
+
+    ; Primeiro, vamos obter a posição atual do obstáculo.
+    mov di, word ptr [bx+2]
+    push bx
+    
+    ; Move o obstáculo para a esquerda.
+    mov si, offset spr_obst
+    mov ax, 2
+    mov bx, SPEED
+    call move_sprite
+
+    ; Atualiza a posição na array de objeto.
+    pop bx
+    mov word ptr [bx+2], di
+
+    pop cx
+    pop si
+    pop di
+    pop bx
+    pop ax
+    ret
 ;
 ; Lê o status das teclas relevantes para o jogo e altera suas entradas na memória.
 ;
@@ -724,9 +798,10 @@ process_input:
     push ax
     push bx
     push si
+    push di
 
     mov si, offset spr_nave
-    mov dx, nave_pos
+    mov di, nave_pos
     mov bx, SPEED
 
     ; Decrementa o delay de tiro
@@ -744,7 +819,7 @@ process_input:
         ; Mover para cima
         xor ax, ax
         call move_sprite
-        mov nave_pos, dx
+        mov nave_pos, di
     
     process_input_down:
         cmp input_down, 1
@@ -755,7 +830,7 @@ process_input:
         ; Mover para baixo
         mov ax, 1
         call move_sprite
-        mov nave_pos, dx
+        mov nave_pos, di
     
     process_input_fire:
         cmp input_fire, 1
@@ -770,6 +845,7 @@ process_input:
         mov tiro_delay, TIRO_MAX_DELAY
 
     process_input_done:
+        pop di
         pop si
         pop bx
         pop ax
@@ -818,6 +894,35 @@ draw_status_bar:
     pop cx
     pop bx
     pop ax
+    ret
+;
+; Decrementa uma barra de status.
+;
+; Recebe:
+; DI = Posição preenchida da barra.
+;
+; Retorna:
+; DI = Nova posição preenchida da barra.
+decrement_status_bar:
+    ; Desenha um retângulo
+    ; CX = Largura
+    ; BX = Altura
+    ; DI = Posição
+    ; DL = Cor
+    push bx
+    push cx
+    push dx
+
+    mov cx, SPR_SIZE
+    mov bx, cx
+    xor dl, dl
+    call draw_rect
+
+    sub di, cx
+
+    pop dx
+    pop cx
+    pop bx
     ret
 ;
 ; Desenha a cena inicial.
@@ -887,6 +992,9 @@ setup_scene:
 start_game:
     ; Desenha os primeiros elementos da cena.
     call setup_scene
+
+    mov ax, OBJ_OBST
+    call spawn_object
 
     ; Entrando no loop principal do jogo...
     main_loop:
