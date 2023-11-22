@@ -8,12 +8,9 @@ UI_PANEL_Y      equ 180
 ; Defines
 CR              equ 13
 LF              equ 10
-SPR_SIZE        equ 10
-INIT_NAVE_POS   equ 320 * (100 - SPR_SIZE / 2) + (160 - SPR_SIZE / 2)
-FRENTE_NAVE     equ 320 * (SPR_SIZE / 2) + SPR_SIZE ; Adicione isso à posição da nave para spawnar o tiro na frente dela.
-SPEED_TIRO      equ SPEED * 2
-LIFETIME_TIRO   equ (320 - 160) / SPEED_TIRO
+
 MENU_SPRITES    equ 320 * (105) + SPR_SIZE * (320 / 2 / SPR_SIZE) - 7 * SPR_SIZE ; ehuahea colocar sprites do menu no meio da tela
+
 UI_BARRA_MAX    equ 10
 UI_PANEL_POS    equ 320 * (UI_PANEL_Y)
 UI_PANEL_HEIGHT equ 200 - UI_PANEL_Y
@@ -22,6 +19,16 @@ UI_VIDA_POS     equ 320 * (UI_PANEL_Y + 5) + 216
 UI_BARRA_HEIGHT equ SPR_SIZE
 UI_BARRA_WIDTH  equ SPR_SIZE * UI_BARRA_MAX
 UI_BOTAO_POS    equ 320 * (UI_PANEL_Y + 5) + (160 - SPR_SIZE / 2)
+
+SPR_SIZE        equ 10
+
+INIT_NAVE_POS   equ 320 * (100 - SPR_SIZE / 2) + (160 - SPR_SIZE / 2)
+FRENTE_NAVE     equ 320 * (SPR_SIZE / 2) + SPR_SIZE ; Adicione isso à posição da nave para spawnar o tiro na frente dela.
+NAVE_MIN_Y      equ 320 * SPEED
+NAVE_MAX_Y      equ UI_PANEL_POS - 320 * (SPR_SIZE + SPEED)
+
+SPEED_TIRO      equ SPEED * 2
+LIFETIME_TIRO   equ (320 - 160 - SPR_SIZE / 2) / SPEED_TIRO
 ;
 ; Enums
 OBJ_NULL    equ 0
@@ -728,8 +735,12 @@ process_input:
     dec tiro_delay
 
     process_input_up:
+        ; Se cima estiver pressionado...
         cmp input_up, 1
         jne process_input_down
+        ; Primeiro, cheque se a nave não está no limite.
+        cmp nave_pos, NAVE_MIN_Y
+        jbe process_input_down ; JBE = JUMP IF BELOW OR EQUAL, comparação sem sinal.
         ; Mover para cima
         xor ax, ax
         call move_sprite
@@ -738,6 +749,9 @@ process_input:
     process_input_down:
         cmp input_down, 1
         jne process_input_fire
+        ; Primeiro, cheque se a nave não está no limite.
+        cmp nave_pos, NAVE_MAX_Y
+        jae process_input_fire ; JAE = JUMP IF AFTER OR EQUAL, comparação sem sinal.
         ; Mover para baixo
         mov ax, 1
         call move_sprite
