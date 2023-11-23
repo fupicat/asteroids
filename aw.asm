@@ -127,6 +127,8 @@ dataseg
                     db 00, 00, 00, 00, 15, 15, 00, 00, 00, 00
     
     ; Jogo
+    rng_seed   dw 0
+
     nave_pos   dw INIT_NAVE_POS
     
     tiro_delay db 0
@@ -224,6 +226,48 @@ delay:
     int 15H
 
     pop ax
+    ret
+;
+; Gera um número pseudo-aleatório usando o último número gerado.
+; Referência: https://stackoverflow.com/questions/40698309/8086-random-number-generator-not-just-using-the-system-time
+;
+; Retorna:
+; AX = Número aleatório.
+; rng_seed = Número aleatório.
+rand:
+    push dx
+
+    mov     ax, 25173          ; LCG Multiplier
+    mul     word ptr [rng_seed]     ; DX:AX = LCG multiplier * seed
+    add     ax, 13849          ; Add LCG increment value
+    ; Modulo 65536, AX = (multiplier*seed+increment) mod 65536
+    mov     word ptr [rng_seed], ax          ; Update seed = return value
+    shr     ax, 5               ; Discard 5 bits
+
+    pop dx
+    ret
+;
+; Gera um número aleatório entre 0 e AX.
+;
+; Recebe:
+; AX = Limite superior.
+;
+; Retorna:
+; AX = Número aleatório.
+rand_range:
+    push bx
+    push dx
+            
+    mov bx, ax
+    
+    call rand
+    xor dx, dx
+    div bx ; DX contem o resto.
+    
+    mov ax, dx
+
+    pop dx
+    pop bx
     ret
 ;
 ; Desenha um único pixel.
@@ -644,12 +688,21 @@ spawn_tiro:
 ; BX = Posição do objeto na array de objetos.
 spawn_obst:
     push ax
+    push bx
     push dx
     push di
     push si
 
-    ; O obstáculo deve ser spawnado em uma posição aleatória.
-    mov di, 320 * 30 + 310 ; Temporário
+    ; O obstáculo deve ser spawnado em uma posição aleatória dentro da área de jogo.
+    mov ax, UI_PANEL_Y - SPR_SIZE
+    call rand_range
+
+    push bx
+    mov bx, 320
+    mul bx
+    add ax, 320 - SPR_SIZE
+    mov di, ax
+    pop bx
     ; Desenhe o sprite do obstáculo.
     mov si, offset spr_obst
     call draw_sprite
@@ -662,6 +715,7 @@ spawn_obst:
     pop si
     pop di
     pop dx
+    pop bx
     pop ax
     ret
 ;
@@ -1185,10 +1239,18 @@ setup_scene:
     ret
 ;
 start_game:
+    ; Inicializa o RNG.
+    xor ah, ah    
+    int 1AH ; Obtém o tempo do sistema. CX:DX = Número de ticks de clock desde a meia-noite.
+
+    mov word ptr [rng_seed], dx
+
     ; Desenha os primeiros elementos da cena.
     call setup_scene
 
     mov ax, OBJ_OBST
+    call spawn_object
+    call spawn_object
     call spawn_object
     call spawn_object
     call spawn_object
@@ -1339,7 +1401,7 @@ start:
     call cga_mode
 
     ; Ativa o menu. Comente para pular.
-    call main_menu
+    ;call main_menu
 
     xor dl, dl
     call draw_bg_color
