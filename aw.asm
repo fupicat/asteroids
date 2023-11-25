@@ -1,9 +1,12 @@
 ; Opções
     DELAY_LOW       equ 0C350H ; 3E80H = 16000 microssegundos, ~60 fps
-    MAX_OBJS        equ 16 ; O número máximo de objetos que podem existir ao mesmo tempo.
+    MAX_OBJS        equ 24 ; O número máximo de objetos que podem existir ao mesmo tempo.
     SPEED           equ 2 ; A velocidade da nave, obstáculos e poderes.
     TIRO_MAX_DELAY  equ 4
     UI_PANEL_Y      equ 180
+    SPAWN_DELAY     equ 20 ; Quantos frames esperar entre spawn de obstáculos e power ups.
+    VIDA_CHANCE     equ 5 ; Chance de spawnar um power up de vida ao invés de um obstáculo. Ex: 5 = chance de 1 de 5.
+    ESCUDO_CHANCE   equ 5 ; Mesma coisa mas para o escudo.
 ;
 ; Defines
     CR              equ 13
@@ -127,17 +130,20 @@ dataseg
                     db 00, 00, 00, 00, 15, 15, 00, 00, 00, 00
     
     ; Jogo
-    rng_seed   dw 0
+    rng_seed    dw 0
 
-    nave_pos   dw INIT_NAVE_POS
+    nave_pos    dw INIT_NAVE_POS
     
-    tiro_delay db 0
+    tiro_timer  dw 0
+    spawn_timer dw SPAWN_DELAY
 
-    tempo_pos  dw UI_TEMPO_POS + UI_BARRA_MAX_POS
-    vida_pos   dw UI_VIDA_POS + UI_BARRA_MAX_POS
+    obst_speed  dw SPEED
+
+    tempo_pos   dw UI_TEMPO_POS + UI_BARRA_MAX_POS
+    vida_pos    dw UI_VIDA_POS + UI_BARRA_MAX_POS
 
     ; Array de objetos:
-    ; 16 objetos podem existir no plano do jogo ao mesmo tempo.
+    ; MAX_OBJS objetos podem existir no plano do jogo ao mesmo tempo.
     ;
     ; Cada objeto é composto por:
     ; - Seu tipo (0 = vazio, 1 = tiro, 2 = obstaculo, 3 = vida, 4 = escudo)
@@ -227,6 +233,19 @@ delay:
 
     pop ax
     ret
+;
+; Decrementa um número de 16 bits na memória se ele já não for zero.
+;
+; Recebe:
+; BX = Endereço na memória.
+decrement_timer:
+    cmp word ptr [bx], 0
+    je decrement_timer_end
+
+    dec word ptr [bx]
+
+    decrement_timer_end:
+        ret
 ;
 ; Gera um número pseudo-aleatório usando o último número gerado.
 ; Referência: https://stackoverflow.com/questions/40698309/8086-random-number-generator-not-just-using-the-system-time
@@ -497,6 +516,26 @@ move_sprite:
 
         jmp move_sprite_end
 ;
+; Obtém uma posição aleatória para um objeto nascer na extremidade direita da tela dentro da área de jogo.
+;
+; Retorna:
+; DI = Posição de spawn.
+get_random_spawn_pos:
+    push ax
+    push bx
+
+    mov ax, UI_PANEL_Y - SPR_SIZE
+    call rand_range
+
+    mov bx, 320
+    mul bx
+    add ax, 320 - SPR_SIZE
+    mov di, ax
+
+    pop bx
+    pop ax
+    ret
+;
 ; Detecta colisão entre um pixel e um sprite.
 ; Para isso, vai passando linha por linha de um sprite,
 ; vendo se o pixel está no intervalo de memória que aquela linha ocupa.
@@ -693,16 +732,7 @@ spawn_obst:
     push di
     push si
 
-    ; O obstáculo deve ser spawnado em uma posição aleatória dentro da área de jogo.
-    mov ax, UI_PANEL_Y - SPR_SIZE
-    call rand_range
-
-    push bx
-    mov bx, 320
-    mul bx
-    add ax, 320 - SPR_SIZE
-    mov di, ax
-    pop bx
+    call get_random_spawn_pos
     ; Desenhe o sprite do obstáculo.
     mov si, offset spr_obst
     call draw_sprite
@@ -1031,11 +1061,6 @@ process_input:
     mov di, nave_pos
     mov bx, SPEED
 
-    ; Decrementa o delay de tiro
-    cmp tiro_delay, 0
-    je process_input_up
-    dec tiro_delay
-
     process_input_up:
         ; Se cima estiver pressionado...
         cmp input_up, 1
@@ -1063,13 +1088,13 @@ process_input:
         cmp input_fire, 1
         jne process_input_done
         ; Primeiro, vemos se o tiro não está em delay.
-        cmp tiro_delay, 0
+        cmp tiro_timer, 0
         jne process_input_done
         ; Atirar
         mov ax, OBJ_TIRO
         call spawn_object
         mov input_fire, 0
-        mov tiro_delay, TIRO_MAX_DELAY
+        mov tiro_timer, TIRO_MAX_DELAY
 
     process_input_done:
         pop di
@@ -1077,6 +1102,16 @@ process_input:
         pop bx
         pop ax
         ret
+;
+; Cria um obstáculo ou power-up baseado no status do jogo.
+random_spawn:
+    push ax
+
+    mov ax, OBJ_OBST
+    call spawn_object
+
+    pop ax
+    ret
 ;
 ; Desenha uma barra de status.
 ;
@@ -1248,20 +1283,6 @@ start_game:
     ; Desenha os primeiros elementos da cena.
     call setup_scene
 
-    mov ax, OBJ_OBST
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-    call spawn_object
-
     ; Entrando no loop principal do jogo...
     main_loop:
         ; Primeiro, obtém os controles do jogador.
@@ -1273,9 +1294,26 @@ start_game:
         ; Terceiro, realiza as ações dos objetos.
         call process_objects
 
+        ; Espera DELAY_LOW microssegundos para continuar.
         xor cx, cx
         mov dx, DELAY_LOW
         call delay
+
+        ; Decrementa todos os timers.
+        ; Decrementa o timer de tiro.
+        mov bx, offset tiro_timer
+        call decrement_timer
+        ; Decrementa o timer de spawn.
+        mov bx, offset spawn_timer
+        call decrement_timer
+
+        ; Se o timer de spawn for 0, vamos criar um novo obstáculo.
+        cmp spawn_timer, 0
+        jne main_loop
+
+        mov spawn_timer, SPAWN_DELAY
+        call random_spawn
+
         jmp main_loop
 
     ret
