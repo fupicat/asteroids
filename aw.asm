@@ -1,13 +1,13 @@
 ; Opções
-    DELAY_LOW       equ 50000 ; 16000 microssegundos, ~60 fps
+    FPS             equ 20 ; 20 fps = 50ms por frame
     MAX_OBJS        equ 24 ; O número máximo de objetos que podem existir ao mesmo tempo.
-    SPEED           equ 2 ; A velocidade da nave, obstáculos e poderes.
+    SPEED           equ 2 ; A velocidade da nave, e velocidade inicial dos obstáculos e poderes.
     TIRO_MAX_DELAY  equ 4
     UI_PANEL_Y      equ 180
     SPAWN_DELAY     equ 20 ; Quantos frames esperar entre spawn de obstáculos e power ups.
     VIDA_CHANCE     equ 5 ; Chance de spawnar um power up de vida ao invés de um obstáculo. Ex: 5 = chance de 1 de 5.
     ESCUDO_CHANCE   equ 5 ; Mesma coisa mas para o escudo.
-    INV_FRAMES      equ 100 ; 100 frames, 50 microssegundos por frame = 5 segundos
+    ESCUDO_SECONDS  equ 5 ; Quantos segundos o escudo dura.
 ;
 ; Defines
     CR              equ 13
@@ -35,6 +35,9 @@
     SPEED_TIRO      equ SPEED * 2
     LIFETIME_TIRO   equ (320 - 160 - SPR_SIZE / 2) / SPEED_TIRO
     LIFETIME_OBST   equ (320 - SPR_SIZE / 2) / SPEED - SPEED
+
+    DELAY_LOW       equ (1000 / FPS) * 1000
+    INV_FRAMES      equ ESCUDO_SECONDS * FPS
 ;
 ; Enums
     MENU_JOGAR  equ 0
@@ -712,6 +715,7 @@ spawn_object:
         jmp spawn_object_end
     
     spawn_object_vida:
+        call spawn_vida
         jmp spawn_object_end
     
     spawn_object_escd:
@@ -786,6 +790,28 @@ spawn_escd:
     pop si
     pop di
     ret
+;
+; Cria um objeto de restaurador de vida.
+;
+; Recebe:
+; BX = Posição do objeto na array de objetos.
+spawn_vida:
+    push di
+    push si
+
+    call get_random_spawn_pos
+    ; Desenhe o sprite da vida.
+    mov si, offset spr_vida
+    call draw_sprite
+    ; Move a posição para a memória
+    mov word ptr [bx+2], di
+    ; Move o tempo de vida do obstáculo, que é o mesmo para a vida.
+    mov word ptr [bx+4], LIFETIME_OBST
+
+    pop si
+    pop di
+    ret
+;
 ; Remove um objeto, da memória e da tela.
 ;
 ; Recebe:
@@ -913,6 +939,7 @@ process_objects:
         jmp process_objects_continue
 
     process_objects_vida:
+        call process_vida
         jmp process_objects_continue
     
     process_objects_escd:
@@ -1073,6 +1100,47 @@ process_escd:
         call activate_shield
         jmp process_escd_end
 ;
+; Realiza as ações do restaurador de vida.
+;
+; Recebe:
+; BX = Posição da entrada do objeto na array de objetos.
+process_vida:
+    push ax
+    push di
+    push si
+    push cx
+
+    ; Move a vida para a esquerda.
+    mov si, offset spr_vida
+    mov ax, DIR_ESQ
+    mov cx, obst_speed
+    call move_object_sprite
+
+    ; Agora vamos ver se ela está colidindo com a nave.
+    mov si, nave_pos
+    call sprite_collision
+    cmp ax, 1
+    je process_vida_hit
+
+    process_vida_end:
+        pop cx
+        pop si
+        pop di
+        pop ax
+        ret
+    
+    ; A vida atingiu a nave!
+    process_vida_hit:
+        ; Remove a vida.
+        call remove_object
+        ; Enche novamente a barra de vida.
+        call restore_health
+        ; Redesenha a nave.
+        call get_nave_sprite
+        mov di, nave_pos
+        call draw_sprite
+        jmp process_vida_end
+;
 ; Lê o status das teclas relevantes para o jogo e altera suas entradas na memória.
 ;
 ; Retorna:
@@ -1192,8 +1260,19 @@ random_spawn:
     mov ax, ESCUDO_CHANCE
     call rand_range
     cmp ax, 0 ; Se o RNG nos der 0, spawnamos o escudo.
-    jne random_spawn_done
+    jne random_spawn_vida
     mov bx, OBJ_ESCD
+
+    random_spawn_vida:
+        ; Caso a vida da nave estiver menos da metade, o restaurador de vida pode aparecer.
+        cmp vida_pos, UI_VIDA_POS + (UI_BARRA_MAX_POS / 2)
+        jae random_spawn_done
+        ; Vamos rodar o RNG para ver se aparece o power-up da vida.
+        mov ax, VIDA_CHANCE
+        call rand_range
+        cmp ax, 0 ; Se o RNG nos der 0, spawnamos a vida.
+        jne random_spawn_done
+        mov bx, OBJ_VIDA
 
     ; Spawnamos o que estiver no registrador BX por último.
     random_spawn_done:
@@ -1217,6 +1296,22 @@ activate_shield:
 
     pop di
     pop si
+    ret
+;
+; Preenche a vida da nave.
+restore_health:
+    push di
+    push dx
+
+    mov di, UI_VIDA_POS
+    mov dl, 10
+    mov dh, 2
+    call draw_status_bar
+    mov vida_pos, UI_VIDA_POS + UI_BARRA_MAX_POS
+
+    pop dx
+    pop di
+
     ret
 ;
 ; Desenha uma barra de status.
