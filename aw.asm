@@ -1,5 +1,5 @@
 ; Opções
-    DELAY_LOW       equ 0C350H ; 3E80H = 16000 microssegundos, ~60 fps
+    DELAY_LOW       equ 50000 ; 16000 microssegundos, ~60 fps
     MAX_OBJS        equ 24 ; O número máximo de objetos que podem existir ao mesmo tempo.
     SPEED           equ 2 ; A velocidade da nave, obstáculos e poderes.
     TIRO_MAX_DELAY  equ 4
@@ -7,6 +7,7 @@
     SPAWN_DELAY     equ 20 ; Quantos frames esperar entre spawn de obstáculos e power ups.
     VIDA_CHANCE     equ 5 ; Chance de spawnar um power up de vida ao invés de um obstáculo. Ex: 5 = chance de 1 de 5.
     ESCUDO_CHANCE   equ 5 ; Mesma coisa mas para o escudo.
+    INV_FRAMES      equ 100 ; 100 frames, 50 microssegundos por frame = 5 segundos
 ;
 ; Defines
     CR              equ 13
@@ -133,6 +134,7 @@ dataseg
     rng_seed    dw 0
 
     nave_pos    dw INIT_NAVE_POS
+    nave_inv    dw 0
     
     tiro_timer  dw 0
     spawn_timer dw SPAWN_DELAY
@@ -238,11 +240,17 @@ delay:
 ;
 ; Recebe:
 ; BX = Endereço na memória.
+;
+; Retorna:
+; BX = 1 se o timer acabou de virar 0.
 decrement_timer:
     cmp word ptr [bx], 0
     je decrement_timer_end
 
     dec word ptr [bx]
+    jnz decrement_timer_end
+
+    mov bx, 1 ; Se o timer acabou de virar 0, retorna 1.
 
     decrement_timer_end:
         ret
@@ -383,6 +391,21 @@ draw_sprite:
         pop si
         pop cx
     ret
+;
+; Obtém o sprite correto da nave, dependendo se ela estiver com o escudo ou não.
+;
+; Retorna:
+; SI = Endereço do sprite.
+get_nave_sprite:
+    mov si, offset spr_nave
+
+    ; Vê se a nave está com o escudo ativado para selecionar o sprite certo.
+    cmp nave_inv, 0
+    je get_nave_sprite_end
+    mov si, offset spr_nave_escd
+    
+    get_nave_sprite_end:
+        ret
 ;
 ; Move um sprite em uma direção.
 ; Preenche a área que o sprite costumava ocupar por preto.
@@ -692,6 +715,7 @@ spawn_object:
         jmp spawn_object_end
     
     spawn_object_escd:
+        call spawn_escd
         jmp spawn_object_end
 
 ;
@@ -726,9 +750,6 @@ spawn_tiro:
 ; Recebe:
 ; BX = Posição do objeto na array de objetos.
 spawn_obst:
-    push ax
-    push bx
-    push dx
     push di
     push si
 
@@ -736,19 +757,35 @@ spawn_obst:
     ; Desenhe o sprite do obstáculo.
     mov si, offset spr_obst
     call draw_sprite
-    ; Mova a posição para a memória
+    ; Move a posição para a memória
     mov word ptr [bx+2], di
     ; Move o tempo de vida do obstáculo.
-    mov ax, LIFETIME_OBST
-    mov word ptr [bx+4], ax
+    mov word ptr [bx+4], LIFETIME_OBST
 
     pop si
     pop di
-    pop dx
-    pop bx
-    pop ax
     ret
 ;
+; Cria um objeto de escudo.
+;
+; Recebe:
+; BX = Posição do objeto na array de objetos.
+spawn_escd:
+    push di
+    push si
+
+    call get_random_spawn_pos
+    ; Desenhe o sprite do escudo.
+    mov si, offset spr_escd
+    call draw_sprite
+    ; Move a posição para a memória
+    mov word ptr [bx+2], di
+    ; Move o tempo de vida do obstáculo, que é o mesmo para o escudo.
+    mov word ptr [bx+4], LIFETIME_OBST
+
+    pop si
+    pop di
+    ret
 ; Remove um objeto, da memória e da tela.
 ;
 ; Recebe:
@@ -879,6 +916,7 @@ process_objects:
         jmp process_objects_continue
     
     process_objects_escd:
+        call process_escd
         jmp process_objects_continue
     
     process_objects_remove:
@@ -919,7 +957,7 @@ process_tiro:
     pop ax
     ret
 ;
-; Realiza as ações de um obstáculo no campo de jogo.
+; Realiza as ações do asteroide.
 ;
 ; Recebe:
 ; BX = Posição da entrada do objeto na array de objetos.
@@ -932,7 +970,7 @@ process_obst:
     ; Move o obstáculo para a esquerda.
     mov si, offset spr_obst
     mov ax, DIR_ESQ
-    mov cx, SPEED
+    mov cx, obst_speed
     call move_object_sprite
 
     push bx ; Salva sua posição na memória caso tenha que ser deletado.
@@ -993,10 +1031,47 @@ process_obst:
         ; Remove o obstáculo.
         call remove_object
         ; Redesenha a nave.
-        mov si, offset spr_nave
+        call get_nave_sprite
         mov di, nave_pos
         call draw_sprite
         jmp process_obst_end
+;
+; Realiza as ações do escudo.
+;
+; Recebe:
+; BX = Posição da entrada do objeto na array de objetos.
+process_escd:
+    push ax
+    push di
+    push si
+    push cx
+
+    ; Move o escudo para a esquerda.
+    mov si, offset spr_escd
+    mov ax, DIR_ESQ
+    mov cx, obst_speed
+    call move_object_sprite
+
+    ; Agora vamos ver se ele está colidindo com a nave.
+    mov si, nave_pos
+    call sprite_collision
+    cmp ax, 1
+    je process_escd_hit
+
+    process_escd_end:
+        pop cx
+        pop si
+        pop di
+        pop ax
+        ret
+    
+    ; O escudo atingiu a nave!
+    process_escd_hit:
+        ; Remove o escudo.
+        call remove_object
+        ; Ativa o modo invencível.
+        call activate_shield
+        jmp process_escd_end
 ;
 ; Lê o status das teclas relevantes para o jogo e altera suas entradas na memória.
 ;
@@ -1057,7 +1132,8 @@ process_input:
     push si
     push di
 
-    mov si, offset spr_nave
+    ; Inicializa as ações de sprite com o sprite da nave, sua posição e velocidade.
+    call get_nave_sprite
     mov di, nave_pos
     mov bx, SPEED
 
@@ -1102,15 +1178,45 @@ process_input:
         pop bx
         pop ax
         ret
+
 ;
 ; Cria um obstáculo ou power-up baseado no status do jogo.
 random_spawn:
     push ax
+    push bx
 
-    mov ax, OBJ_OBST
-    call spawn_object
+    ; Por padrão, a gente spawna um obstáculo.
+    mov bx, OBJ_OBST
 
-    pop ax
+    ; Vamos rodar o RNG para ver se aparece o power-up do escudo.
+    mov ax, ESCUDO_CHANCE
+    call rand_range
+    cmp ax, 0 ; Se o RNG nos der 0, spawnamos o escudo.
+    jne random_spawn_done
+    mov bx, OBJ_ESCD
+
+    ; Spawnamos o que estiver no registrador BX por último.
+    random_spawn_done:
+        mov ax, bx
+        call spawn_object
+
+        pop bx
+        pop ax
+        ret
+;
+; Ativa o poder do escudo.
+activate_shield:
+    push si
+    push di
+
+    mov nave_inv, INV_FRAMES
+
+    mov si, offset spr_nave_escd
+    mov di, nave_pos
+    call draw_sprite
+
+    pop di
+    pop si
     ret
 ;
 ; Desenha uma barra de status.
@@ -1189,6 +1295,9 @@ decrement_status_bar:
 ;
 ; Causa dano à nave. Se a nave não tiver mais vida, encerra o jogo.
 damage:
+    cmp nave_inv, 0 ; Se a nave estiver invencível, pule o dano completamente.
+    jne damage_denied
+
     push di
 
     mov di, vida_pos
@@ -1207,6 +1316,7 @@ damage:
         mov vida_pos, di
 
         pop di
+    damage_denied:
         ret
 ;
 ; Desenha a cena inicial.
@@ -1306,15 +1416,26 @@ start_game:
         ; Decrementa o timer de spawn.
         mov bx, offset spawn_timer
         call decrement_timer
+        ; Decrementa o timer de invencibilidade
+        mov bx, offset nave_inv
+        call decrement_timer
 
-        ; Se o timer de spawn for 0, vamos criar um novo obstáculo.
-        cmp spawn_timer, 0
-        jne main_loop
+        cmp bx, 1 ; Se o timer de invencibilidade tiver terminado...
+        jne main_loop_random_spawn
+        ; Vamos redesenhar a nave com o sprite normal.
+        mov si, offset spr_nave
+        mov di, nave_pos
+        call draw_sprite
 
-        mov spawn_timer, SPAWN_DELAY
-        call random_spawn
+        main_loop_random_spawn:
+            ; Se o timer de spawn for 0, vamos criar um novo obstáculo.
+            cmp spawn_timer, 0
+            jne main_loop
 
-        jmp main_loop
+            mov spawn_timer, SPAWN_DELAY
+            call random_spawn
+
+            jmp main_loop
 
     ret
 ;
