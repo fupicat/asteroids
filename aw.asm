@@ -6,7 +6,7 @@
     UI_PANEL_Y      equ 180
     SPAWN_DELAY     equ 20 ; Quantos frames esperar entre spawn de obstáculos e power ups.
     VIDA_CHANCE     equ 5 ; Chance de spawnar um power up de vida ao invés de um obstáculo. Ex: 5 = chance de 1 de 5.
-    ESCUDO_CHANCE   equ 5 ; Mesma coisa mas para o escudo.
+    ESCD_SPAWN_SEC  equ 10 ; Quantos segundos entre cada escudo aparecer.
     ESCUDO_SECONDS  equ 5 ; Quantos segundos o escudo dura.
 ;
 ; Defines
@@ -38,6 +38,8 @@
 
     DELAY_LOW       equ (1000 / FPS) * 1000
     INV_FRAMES      equ ESCUDO_SECONDS * FPS
+
+    ESCD_DELAY      equ ESCD_SPAWN_SEC * FPS
 ;
 ; Enums
     MENU_JOGAR  equ 0
@@ -141,6 +143,7 @@ dataseg
     
     tiro_timer  dw 0
     spawn_timer dw SPAWN_DELAY
+    escd_timer  dw ESCD_DELAY
 
     obst_speed  dw SPEED
 
@@ -1256,23 +1259,16 @@ random_spawn:
     ; Por padrão, a gente spawna um obstáculo.
     mov bx, OBJ_OBST
 
-    ; Vamos rodar o RNG para ver se aparece o power-up do escudo.
-    mov ax, ESCUDO_CHANCE
+    ; Caso a vida da nave estiver menos da metade, o restaurador de vida pode aparecer
+    ; ao invés de um asteroide.
+    cmp vida_pos, UI_VIDA_POS + (UI_BARRA_MAX_POS / 2)
+    jae random_spawn_done
+    ; Vamos rodar o RNG para ver se aparece o power-up da vida.
+    mov ax, VIDA_CHANCE
     call rand_range
-    cmp ax, 0 ; Se o RNG nos der 0, spawnamos o escudo.
-    jne random_spawn_vida
-    mov bx, OBJ_ESCD
-
-    random_spawn_vida:
-        ; Caso a vida da nave estiver menos da metade, o restaurador de vida pode aparecer.
-        cmp vida_pos, UI_VIDA_POS + (UI_BARRA_MAX_POS / 2)
-        jae random_spawn_done
-        ; Vamos rodar o RNG para ver se aparece o power-up da vida.
-        mov ax, VIDA_CHANCE
-        call rand_range
-        cmp ax, 0 ; Se o RNG nos der 0, spawnamos a vida.
-        jne random_spawn_done
-        mov bx, OBJ_VIDA
+    cmp ax, 0 ; Se o RNG nos der 0, spawnamos a vida.
+    jne random_spawn_done
+    mov bx, OBJ_VIDA
 
     ; Spawnamos o que estiver no registrador BX por último.
     random_spawn_done:
@@ -1508,19 +1504,34 @@ start_game:
         ; Decrementa o timer de tiro.
         mov bx, offset tiro_timer
         call decrement_timer
+
         ; Decrementa o timer de spawn.
         mov bx, offset spawn_timer
         call decrement_timer
-        ; Decrementa o timer de invencibilidade
-        mov bx, offset nave_inv
+
+        ; Decrementa o timer de escudo.
+        mov bx, offset escd_timer
         call decrement_timer
 
-        cmp bx, 1 ; Se o timer de invencibilidade tiver terminado...
-        jne main_loop_random_spawn
-        ; Vamos redesenhar a nave com o sprite normal.
-        mov si, offset spr_nave
-        mov di, nave_pos
-        call draw_sprite
+        cmp bx, 1 ; Se o timer de escudo tiver terminado...
+        jne main_loop_invincibility
+        ; Vamos spawnar um escudo.
+        mov ax, OBJ_ESCD
+        call spawn_object
+        ; E reiniciar o timer.
+        mov escd_timer, ESCD_DELAY
+
+        main_loop_invincibility:
+            ; Decrementa o timer de invencibilidade
+            mov bx, offset nave_inv
+            call decrement_timer
+
+            cmp bx, 1 ; Se o timer de invencibilidade tiver terminado...
+            jne main_loop_random_spawn
+            ; Vamos redesenhar a nave com o sprite normal.
+            mov si, offset spr_nave
+            mov di, nave_pos
+            call draw_sprite
 
         main_loop_random_spawn:
             ; Se o timer de spawn for 0, vamos criar um novo obstáculo.
