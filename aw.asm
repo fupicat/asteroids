@@ -1,13 +1,17 @@
 ; Opções
-    FPS             equ 20 ; 20 fps = 50ms por frame
-    MAX_OBJS        equ 24 ; O número máximo de objetos que podem existir ao mesmo tempo.
-    SPEED           equ 2 ; A velocidade da nave, e velocidade inicial dos obstáculos e poderes.
-    TIRO_MAX_DELAY  equ 4
-    UI_PANEL_Y      equ 180
-    SPAWN_DELAY     equ 20 ; Quantos frames esperar entre spawn de obstáculos e power ups.
-    VIDA_CHANCE     equ 5 ; Chance de spawnar um power up de vida ao invés de um obstáculo. Ex: 5 = chance de 1 de 5.
-    ESCD_SPAWN_SEC  equ 10 ; Quantos segundos entre cada escudo aparecer.
-    ESCUDO_SECONDS  equ 5 ; Quantos segundos o escudo dura.
+    FPS             equ 20  ; 20 fps = 50ms por frame
+    MAX_OBJS        equ 24  ; O número máximo de objetos que podem existir ao mesmo tempo.
+    SPEED           equ 2   ; A velocidade da nave, e velocidade inicial dos obstáculos e poderes.
+    TIRO_MAX_DELAY  equ 4   ; Quantos frames de delay entre tiros ao segurar a barra de espaço.
+    UI_PANEL_Y      equ 180 ; A posição Y onde o painel da interface começa.
+    SPAWN_DELAY     equ 10  ; Quantos frames esperar entre spawn de obstáculos e power ups.
+    HIT_POINTS      equ 10  ; Quantas chances a nave tem de bater num obstáculo antes de perder.
+    VIDA_CHANCE     equ 5   ; Chance de spawnar um power up de vida ao invés de um obstáculo. Ex: 5 = chance de 1 de 5.
+    ESCD_SPAWN_SEC  equ 10  ; Quantos segundos entre cada escudo aparecer.
+    ESCUDO_SECONDS  equ 6   ; Quantos segundos o escudo dura.
+    ROUND_SECONDS   equ 24  ; Quantos segundos uma rodada dura.
+    ROUNDS          equ 4   ; Quantas rodadas dura o jogo.
+    SPEED_ACC       equ 1   ; Quantos pixels adicionar à velocidade dos obstáculos a cada rodada.
 ;
 ; Defines
     CR              equ 13
@@ -22,7 +26,7 @@
     UI_VIDA_POS      equ 320 * (UI_PANEL_Y + 5) + 216
     UI_BARRA_HEIGHT  equ SPR_SIZE
     UI_BARRA_WIDTH   equ SPR_SIZE * UI_BARRA_MAX
-    UI_BARRA_MAX_POS equ UI_BARRA_WIDTH - SPR_SIZE ; Adicione isso à posição da barra para obter o endereço de memória para começar a apagá-la.
+    UI_BARRA_MAX_POS equ UI_BARRA_WIDTH ; Adicione isso à posição da barra para obter o endereço de memória onde ela acaba.
     UI_BOTAO_POS     equ 320 * (UI_PANEL_Y + 5) + (160 - SPR_SIZE / 2)
 
     SPR_SIZE        equ 10
@@ -34,12 +38,15 @@
 
     SPEED_TIRO      equ SPEED * 2
     LIFETIME_TIRO   equ (320 - 160 - SPR_SIZE / 2) / SPEED_TIRO
-    LIFETIME_OBST   equ (320 - SPR_SIZE / 2) / SPEED - SPEED
+    BASE_LF_OBST    equ (320 - SPR_SIZE / 2)
 
     DELAY_LOW       equ (1000 / FPS) * 1000
     INV_FRAMES      equ ESCUDO_SECONDS * FPS
 
     ESCD_DELAY      equ ESCD_SPAWN_SEC * FPS
+
+    LIFE_ERASE      equ UI_BARRA_WIDTH / HIT_POINTS
+    ROUND_ERASE     equ UI_BARRA_WIDTH / ROUND_SECONDS
 ;
 ; Enums
     MENU_JOGAR  equ 0
@@ -78,6 +85,28 @@ dataseg
     str_sair    db "                 Jogar  ", CR, LF, CR, LF
                 db "               [ Sair  ]"
     len_str_sair equ $ - str_sair
+
+    str_lose    db "              _   __         //|        "
+                db "             | | / /__  ____|/||        "
+                db "             | |/ / _ \/ __/ -_)        "
+                db "         ___ |___/\___/\__/\__/         "
+                db "        / _ \___ _______/ /__ __ __     "
+                db "       / ___/ -_) __/ _  / -_) // /     "
+                db "      /_/   \__/_/  \_,_/\__/\_,_/      "
+    len_str_lose equ $ - str_lose
+
+    str_win     db "         ___                            "
+                db "        / _ \___ ________ _             "
+                db "       / ___/ _ `/ __/ _ `/             "
+                db "      /_/   \_,_/_/__\_,_/_             "
+                db "                  / /  _/_/___  ___     "
+                db "                 / _ \/ -_) _ \(_-<     "
+                db "                /_.__/\__/_//_/___/     "
+                             
+    len_str_win equ $ - str_win
+
+    str_exit_prompt   db "       Aperte [ ENTER ] para sair       "
+    len_str_exit_prompt equ $ - str_exit_prompt
 
     ; Sprites
     spr_nave        db 00, 00, 00, 04, 04, 12, 12, 12, 00, 00
@@ -136,19 +165,24 @@ dataseg
                     db 00, 00, 00, 00, 15, 15, 00, 00, 00, 00
     
     ; Jogo
-    rng_seed    dw 0
+    rng_seed      dw 0
 
-    nave_pos    dw INIT_NAVE_POS
-    nave_inv    dw 0
+    nave_pos      dw INIT_NAVE_POS
+    nave_inv      dw 0
     
-    tiro_timer  dw 0
-    spawn_timer dw SPAWN_DELAY
-    escd_timer  dw ESCD_DELAY
+    tiro_timer    dw 0
+    spawn_timer   dw SPAWN_DELAY
+    escd_timer    dw ESCD_DELAY
+    round_timer   dw FPS
 
-    obst_speed  dw SPEED
+    enable_escd   db 0
 
-    tempo_pos   dw UI_TEMPO_POS + UI_BARRA_MAX_POS
-    vida_pos    dw UI_VIDA_POS + UI_BARRA_MAX_POS
+    rounds_left   dw ROUNDS
+    obst_speed    dw SPEED
+    obst_lifetime dw BASE_LF_OBST / SPEED - SPEED
+
+    tempo_pos     dw UI_TEMPO_POS + UI_BARRA_MAX_POS - ROUND_ERASE
+    vida_pos      dw UI_VIDA_POS + UI_BARRA_MAX_POS - LIFE_ERASE
 
     ; Array de objetos:
     ; MAX_OBJS objetos podem existir no plano do jogo ao mesmo tempo.
@@ -240,6 +274,19 @@ delay:
     int 15H
 
     pop ax
+    ret
+;
+; Faz nada durante um frame do jogo.
+idle_frame:
+    push cx
+    push dx
+
+    xor cx, cx
+    mov dx, DELAY_LOW
+    call delay
+
+    pop dx
+    pop cx
     ret
 ;
 ; Decrementa um número de 16 bits na memória se ele já não for zero.
@@ -396,6 +443,43 @@ draw_sprite:
         pop di
         pop si
         pop cx
+    ret
+;
+; Preenche a área do jogo até a barra de status com uma cor.
+;
+; Recebe:
+; DL = Cor
+slowly_fill_game_area:
+    push di
+    push bx
+    push cx
+
+    mov di, 0
+
+    mov bx, UI_PANEL_Y / 4
+
+    slowly_fill_game_area_loop:
+        mov cx, 320 * 4
+
+        slowly_fill_game_area_pixel:
+            ; Transfere a cor para uma linha na tela.
+            mov es:[di], dl
+            inc di
+            loop slowly_fill_game_area_pixel
+
+        ; Espere um frame
+        call idle_frame
+
+        ; Decrementa a altura e verifica se acabou.
+        dec bx
+        jz slowly_fill_game_area_end
+
+        jmp slowly_fill_game_area_loop
+
+    slowly_fill_game_area_end:
+        pop cx
+        pop bx
+        pop di
     ret
 ;
 ; Obtém o sprite correto da nave, dependendo se ela estiver com o escudo ou não.
@@ -767,7 +851,8 @@ spawn_obst:
     ; Move a posição para a memória
     mov word ptr [bx+2], di
     ; Move o tempo de vida do obstáculo.
-    mov word ptr [bx+4], LIFETIME_OBST
+    mov di, obst_lifetime
+    mov word ptr [bx+4], di
 
     pop si
     pop di
@@ -788,7 +873,8 @@ spawn_escd:
     ; Move a posição para a memória
     mov word ptr [bx+2], di
     ; Move o tempo de vida do obstáculo, que é o mesmo para o escudo.
-    mov word ptr [bx+4], LIFETIME_OBST
+    mov di, obst_lifetime
+    mov word ptr [bx+4], di
 
     pop si
     pop di
@@ -809,7 +895,8 @@ spawn_vida:
     ; Move a posição para a memória
     mov word ptr [bx+2], di
     ; Move o tempo de vida do obstáculo, que é o mesmo para a vida.
-    mov word ptr [bx+4], LIFETIME_OBST
+    mov di, obst_lifetime
+    mov word ptr [bx+4], di
 
     pop si
     pop di
@@ -826,6 +913,8 @@ remove_object:
     push dx
     push di
 
+    cmp word ptr [bx], OBJ_NULL
+    je remove_object_end
     cmp word ptr [bx], OBJ_TIRO
     je remove_object_tiro
     cmp word ptr [bx], OBJ_OBST
@@ -903,7 +992,7 @@ process_objects:
         cmp word ptr [bx], OBJ_NULL
         jne process_objects_found
         process_objects_continue:
-            ; Adiciona 6 para ir para o último objeto,
+            ; Adiciona 6 para ir para o próximo objeto,
             ; Já que cada entrada de objeto é de 3 words, AKA 6 bytes.
             add bx, 6
             loop process_objects_loop
@@ -1303,7 +1392,7 @@ restore_health:
     mov dl, 10
     mov dh, 2
     call draw_status_bar
-    mov vida_pos, UI_VIDA_POS + UI_BARRA_MAX_POS
+    mov vida_pos, UI_VIDA_POS + UI_BARRA_MAX_POS - LIFE_ERASE
 
     pop dx
     pop di
@@ -1359,28 +1448,21 @@ draw_status_bar:
 ;
 ; Recebe:
 ; DI = Posição preenchida da barra.
+; CX = Quantos pixels para decrementar.
 ;
 ; Retorna:
 ; DI = Nova posição preenchida da barra.
 decrement_status_bar:
-    ; Desenha um retângulo
-    ; CX = Largura
-    ; BX = Altura
-    ; DI = Posição
-    ; DL = Cor
     push bx
-    push cx
     push dx
 
-    mov cx, SPR_SIZE
-    mov bx, cx
+    mov bx, SPR_SIZE
     xor dl, dl
     call draw_rect
 
     sub di, cx
 
     pop dx
-    pop cx
     pop bx
     ret
 ;
@@ -1390,25 +1472,182 @@ damage:
     jne damage_denied
 
     push di
+    push cx
+    mov cx, LIFE_ERASE
 
     mov di, vida_pos
+    call decrement_status_bar
 
-    ; Se a posição preenchida da barra for igual à sua posição inicial,
-    ; significa que ela está vazia.
+    ; Se a posição preenchida da barra for maior que sua posição inicial,
+    ; significa que a barra ainda não acabou.
     cmp di, UI_VIDA_POS
-    jne damage_done
+    jae damage_done
 
     ; Se chegar nesse ponto, significa que a nave não tem mais vida.
-    ; Encerra o jogo.
-    call end_program
+    ; Perdeu o jogo.
+    call you_lose
 
     damage_done:
-        call decrement_status_bar
-        mov vida_pos, di
+        mov vida_pos, di ; Atualiza a posição da barra.
 
+        pop cx
         pop di
     damage_denied:
         ret
+;
+; Mostra tela de fim de jogo.
+you_lose:
+    mov dl, 4
+    call slowly_fill_game_area
+
+    mov ax, @data
+    mov es, ax              ; String tem que estar no ES.
+    mov ah, 13h             ; Imprimir string.
+    xor al, al              ; Só caracteres.
+    xor bh, bh              ; Página de vídeo 0
+
+    ; Você perdeu
+    xor dl, dl              ; X = 0
+    mov dh, 4               ; Y = 4
+    mov bl, 15              ; Cor branco.
+    mov cx, len_str_lose    ; Tamanho da string
+    mov bp, offset str_lose ; String para escrever.
+    int 10h
+
+    ; Opções
+    mov dh, 17
+    mov cx, len_str_exit_prompt
+    mov bp, offset str_exit_prompt
+    int 10h
+
+    you_lose_loop:
+        ; Espere por uma tecla pressionada.
+        mov ah, 0
+        int 16h
+
+        ; Se a tecla não for enter, volte.
+        cmp ah, 1Ch
+        jne you_lose_loop
+    
+    call end_program
+;
+; Desce um tick do timer de rodada.
+round_tick:
+    push di
+    push cx
+
+    mov di, tempo_pos
+    mov cx, ROUND_ERASE
+    call decrement_status_bar
+
+    ; Se a posição preenchida da barra for maior que sua posição inicial,
+    ; significa que ainda tem tempo.
+    cmp di, UI_TEMPO_POS
+    jae round_tick_done
+
+    ; Se chegar nesse ponto, significa que o tempo acabou.
+    ; Preenche o timer.
+    push dx
+    mov di, UI_TEMPO_POS
+    mov dl, 11
+    mov dh, 3
+    call draw_status_bar
+    pop dx
+    mov tempo_pos, UI_TEMPO_POS + UI_BARRA_MAX_POS - ROUND_ERASE
+
+    call next_round
+
+    ; Saia da rotina mais cedo.
+    pop cx
+    pop di
+    ret
+
+    round_tick_done:
+        mov tempo_pos, di ; Atualiza a posição da barra.
+
+        pop cx
+        pop di
+        ret
+;
+; Passa para o próximo round.
+next_round:
+    push ax
+    push bx
+    push cx
+    push dx
+
+    ; Permite que o escudo comece a aparecer.
+    mov enable_escd, 1
+
+    ; Deleta todos os objetos na tela.
+    mov bx, offset objects
+    mov cx, MAX_OBJS
+
+    next_round_delete_objs:
+        call remove_object
+        ; Adiciona 6 para ir para o próximo objeto,
+        ; Já que cada entrada de objeto é de 3 words, AKA 6 bytes.
+        add bx, 6
+        loop next_round_delete_objs
+
+    ; Altera a velocidade e tempo de vida padrão dos objetos.
+    add obst_speed, SPEED_ACC
+    mov bx, obst_speed
+    xor dx, dx
+    mov ax, BASE_LF_OBST
+    div bx
+    sub ax, obst_speed
+    mov obst_lifetime, ax
+
+    ; Decrementa a contagem de rodada.
+    ; Se acabarem os rounds, o jogador venceu!
+    dec rounds_left
+    jnz next_round_continue
+
+    call you_win
+
+    next_round_continue:
+        pop dx
+        pop cx
+        pop bx
+        pop ax
+        ret
+;
+; Mostra tela de vitória.
+you_win:
+    mov dl, 14
+    call slowly_fill_game_area
+
+    mov ax, @data
+    mov es, ax              ; String tem que estar no ES.
+    mov ah, 13h             ; Imprimir string.
+    xor al, al              ; Só caracteres.
+    xor bh, bh              ; Página de vídeo 0
+
+    ; Você perdeu
+    xor dl, dl              ; X = 0
+    mov dh, 4               ; Y = 4
+    mov bl, 15              ; Cor branco.
+    mov cx, len_str_win     ; Tamanho da string
+    mov bp, offset str_win  ; String para escrever.
+    int 10h
+
+    ; Opções
+    mov dh, 17
+    mov cx, len_str_exit_prompt
+    mov bp, offset str_exit_prompt
+    int 10h
+
+    you_win_loop:
+        ; Espere por uma tecla pressionada.
+        mov ah, 0
+        int 16h
+
+        ; Se a tecla não for enter, volte.
+        cmp ah, 1Ch
+        jne you_win_loop
+    
+    call end_program
 ;
 ; Desenha a cena inicial.
 setup_scene:
@@ -1495,10 +1734,8 @@ start_game:
         ; Terceiro, realiza as ações dos objetos.
         call process_objects
 
-        ; Espera DELAY_LOW microssegundos para continuar.
-        xor cx, cx
-        mov dx, DELAY_LOW
-        call delay
+        ; Espera um frame para continuar.
+        call idle_frame
 
         ; Decrementa todos os timers.
         ; Decrementa o timer de tiro.
@@ -1509,17 +1746,33 @@ start_game:
         mov bx, offset spawn_timer
         call decrement_timer
 
-        ; Decrementa o timer de escudo.
-        mov bx, offset escd_timer
+        ; Decrementa o timer de round.
+        mov bx, offset round_timer
         call decrement_timer
 
-        cmp bx, 1 ; Se o timer de escudo tiver terminado...
-        jne main_loop_invincibility
-        ; Vamos spawnar um escudo.
-        mov ax, OBJ_ESCD
-        call spawn_object
-        ; E reiniciar o timer.
-        mov escd_timer, ESCD_DELAY
+        cmp bx, 1 ; Se o timer de round tiver terminado...
+        jne main_loop_escudo
+
+        call round_tick
+        ; Reinicia o timer.
+        mov round_timer, FPS
+
+        main_loop_escudo:
+            ; Se o escudo estiver desativado, pule essa parte.
+            cmp enable_escd, 0
+            je main_loop_invincibility
+
+            ; Decrementa o timer de escudo.
+            mov bx, offset escd_timer
+            call decrement_timer
+
+            cmp bx, 1 ; Se o timer de escudo tiver terminado...
+            jne main_loop_invincibility
+            ; Vamos spawnar um escudo.
+            mov ax, OBJ_ESCD
+            call spawn_object
+            ; E reiniciar o timer.
+            mov escd_timer, ESCD_DELAY
 
         main_loop_invincibility:
             ; Decrementa o timer de invencibilidade
@@ -1579,7 +1832,7 @@ main_menu:
     ; Logo
     xor dl, dl              ; X = 0
     mov dh, 2               ; Y = 2
-    mov bl, 0CH             ; Cor vermelho claro.
+    mov bl, 10              ; Cor verde claro.
     mov cx, len_str_logo    ; Tamanho da string
     mov bp, offset str_logo ; String para escrever.
     int 10h
@@ -1666,7 +1919,7 @@ start:
     call cga_mode
 
     ; Ativa o menu. Comente para pular.
-    ;call main_menu
+    call main_menu
 
     xor dl, dl
     call draw_bg_color
